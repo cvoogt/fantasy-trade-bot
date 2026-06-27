@@ -1,0 +1,9 @@
+.env
+*.db
+*.sqlite
+*.csv
+__pycache__/
+*.pyc
+.venv/
+fantasycalc_cache/
+homarr_status.json
