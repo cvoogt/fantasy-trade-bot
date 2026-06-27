@@ -65,13 +65,16 @@ def score_trade(
     larger = max(s1.total_value, s2.total_value, 1.0)
     value_delta_pct = abs(value_delta) / larger
 
+    # Owner of side1 gives up side1 and receives side2 — they come out ahead
+    # when they gave up the SMALLER package (value_delta < 0). favored names
+    # the winning side (the receiver of more value), not the bigger package.
     if value_delta_pct < LEAN_THRESHOLD:
         favored, verdict = 0, "FAIR"
     elif value_delta_pct < LOPSIDED_THRESHOLD:
-        favored = 1 if value_delta > 0 else 2
+        favored = 1 if value_delta < 0 else 2
         verdict = "LEAN"
     else:
-        favored = 1 if value_delta > 0 else 2
+        favored = 1 if value_delta < 0 else 2
         verdict = "FLEECE-OVERPAY"
 
     flags: list[str] = []
@@ -102,22 +105,24 @@ def format_result(result: TradeResult) -> str:
     def side_block(label: str, s: SideResult) -> str:
         rows = "\n".join(
             f"    {p['name']:<22} {p['position']:<4} "
-            f"val={p['dynasty_value']:>7.0f}  ${p['salary']:>6.0f}"
+            f"val={p['dynasty_value']:>7.0f}  ${p['salary']:>9.0f}"
             for p in s.players
         )
         unm = f"\n    [unmatched: {', '.join(s.unmatched)}]" if s.unmatched else ""
         return (
-            f"{label}: value={s.total_value:.0f}  salary=${s.total_salary:.0f}\n"
+            f"{label} gives up: value={s.total_value:.0f}  salary=${s.total_salary:.0f}\n"
             f"{rows}{unm}"
         )
 
-    lines.append(side_block("SIDE 1", result.side1))
-    lines.append(side_block("SIDE 2", result.side2))
+    s1, s2 = result.side1, result.side2
+    lines.append(side_block("SIDE 1", s1))
+    lines.append(side_block("SIDE 2", s2))
     lines.append("")
+    lines.append(f"Side 1 net value (gets - gives): {s2.total_value - s1.total_value:+.0f}")
+    lines.append(f"Side 2 net value (gets - gives): {s1.total_value - s2.total_value:+.0f}")
     lines.append(
-        f"Value delta: {result.value_delta:+.0f} "
-        f"({result.value_delta_pct*100:.1f}%)   "
-        f"Salary delta: {result.salary_delta:+.0f}"
+        f"Value gap: {result.value_delta_pct*100:.1f}%   "
+        f"Salary delta (S1-S2): {result.salary_delta:+.0f}"
     )
 
     if result.verdict == "FAIR":
@@ -131,6 +136,6 @@ def format_result(result: TradeResult) -> str:
         )
 
     for flag in result.positional_flags:
-        lines.append(f"  ⚠ {flag}")
+        lines.append(f"  [!] {flag}")
 
     return "\n".join(lines)

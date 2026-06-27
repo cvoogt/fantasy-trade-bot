@@ -12,12 +12,13 @@ VALUE_MAP = {
 }
 
 
-def test_fair_trade():
-    # Star QB (8000) for Elite WR (7500): ~6% -> LEAN, not fleece
+def test_lean_trade():
+    # Side 1 gives Star QB (8000), gets Elite WR (7500): ~6% gap -> LEAN.
+    # Side 1 gave the bigger package, so Side 2 comes out ahead.
     r = score_trade(["0001"], ["0002"], VALUE_MAP)
     assert r.value_delta == 500
     assert r.verdict == "LEAN"
-    assert r.favored == 1
+    assert r.favored == 2
 
 
 def test_truly_fair():
@@ -28,10 +29,11 @@ def test_truly_fair():
 
 
 def test_fleece():
-    # Star QB + Elite WR (15500) for Mid RB (4000): huge gap -> FLEECE
+    # Side 1 gives Star QB + Elite WR (15500), gets Mid RB (4000): huge gap.
+    # Side 1 wildly overpaid, so Side 2 is the one fleecing.
     r = score_trade(["0001", "0002"], ["0003"], VALUE_MAP)
     assert r.verdict == "FLEECE-OVERPAY"
-    assert r.favored == 1
+    assert r.favored == 2
 
 
 def test_unmatched_ids():
