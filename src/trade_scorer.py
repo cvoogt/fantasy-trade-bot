@@ -31,10 +31,12 @@ class TradeResult:
     positional_flags: list[str] = field(default_factory=list)
 
 
-def _build_side(player_ids: list[str], value_map: dict) -> SideResult:
+def _build_side(player_ids: list[str], value_map: dict, pick_resolver=None) -> SideResult:
     side = SideResult(player_ids=player_ids)
     for pid in player_ids:
         info = value_map.get(pid)
+        if info is None and pick_resolver is not None:
+            info = pick_resolver(pid)
         if not info:
             side.unmatched.append(pid)
             continue
@@ -51,14 +53,16 @@ def score_trade(
     side1_owner: str | None = None,
     side2_owner: str | None = None,
     thin_lookup=None,
+    pick_resolver=None,
 ) -> TradeResult:
     """Score a trade. `value_map` is {mfl_id: {...}} from value_engine.get_value_map().
 
     Optional `thin_lookup(franchise_id) -> set[str]` flags a side shipping a
-    position they're already thin at.
+    position they're already thin at. Optional `pick_resolver(token) -> info|None`
+    values draft-pick tokens (FP_/DP_) that aren't in value_map.
     """
-    s1 = _build_side(side1_ids, value_map)
-    s2 = _build_side(side2_ids, value_map)
+    s1 = _build_side(side1_ids, value_map, pick_resolver)
+    s2 = _build_side(side2_ids, value_map, pick_resolver)
 
     value_delta = s1.total_value - s2.total_value
     salary_delta = s1.total_salary - s2.total_salary

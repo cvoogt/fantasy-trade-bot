@@ -5,7 +5,7 @@ import sys
 from src.db import init_db
 from src.crosswalk import build_crosswalk
 from src.fantasycalc_api import fetch_and_cache
-from src.value_engine import dump_csv, get_value_map
+from src.value_engine import dump_csv, get_value_map, make_pick_resolver, get_pick_value_map
 from src.trade_scorer import score_trade, format_result
 
 
@@ -23,8 +23,8 @@ def main():
     score_p.add_argument("--owner2", help="Side 2 franchise ID (enables positional-fit check)")
 
     sub.add_parser("scan", help="Scan league trades (Phase 3)")
-    sub.add_parser("waivers", help="Scan waiver gems (Phase 4)")
-    sub.add_parser("report", help="Push Discord report (Phase 5)")
+    sub.add_parser("waivers", help="Scan waiver gems")
+    sub.add_parser("report", help="Push Discord weekly report")
 
     args = parser.parse_args()
 
@@ -39,9 +39,24 @@ def main():
         init_db()
         dump_csv()
 
+    elif args.command == "scan":
+        from src.scanner import scan_trades
+        results = scan_trades()
+        if not results:
+            print("No new trades since last scan.")
+        else:
+            lopsided = [r for r in results if r["lopsided"]]
+            print(f"Scanned {len(results)} new trade(s); {len(lopsided)} lopsided.\n")
+            for r in results:
+                res = r["result"]
+                tag = "  <<< LOPSIDED" if r["lopsided"] else ""
+                print(f"[{r['franchise1']} <-> {r['franchise2']}] "
+                      f"{res.verdict} (gap {res.value_delta_pct*100:.0f}%){tag}")
+
     elif args.command == "score":
         init_db()
         value_map = get_value_map()
+        pick_resolver = make_pick_resolver(get_pick_value_map())
         thin_lookup = None
         if args.owner1 or args.owner2:
             from src.roster import thin_positions
@@ -53,8 +68,19 @@ def main():
             side1_owner=args.owner1,
             side2_owner=args.owner2,
             thin_lookup=thin_lookup,
+            pick_resolver=pick_resolver,
         )
         print(format_result(result))
+
+    elif args.command == "waivers":
+        init_db()
+        from src.waivers import waiver_gems, format_waiver_report
+        report = waiver_gems()
+        print(format_waiver_report(report))
+
+    elif args.command == "report":
+        print("Discord report not yet implemented (Phase 5)")
+        sys.exit(1)
 
     else:
         parser.print_help()

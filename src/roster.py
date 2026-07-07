@@ -45,13 +45,16 @@ def league_median_by_position(
     return {pos: statistics.median(vals) for pos, vals in positions.items()}
 
 
-def thin_positions(franchise_id: str, value_map: dict | None = None) -> set[str]:
-    """Positions where this franchise is below the league median."""
+def all_thin_positions(value_map: dict | None = None) -> dict[str, set[str]]:
+    """{franchise_id: positions below league median}. Computed in one pass."""
     fv = franchise_positional_value(value_map)
     medians = league_median_by_position(fv)
-    mine = fv.get(franchise_id, {})
-    thin = set()
-    for pos, median in medians.items():
-        if mine.get(pos, 0.0) < median:
-            thin.add(pos)
-    return thin
+    return {
+        fid: {pos for pos, med in medians.items() if pos_totals.get(pos, 0.0) < med}
+        for fid, pos_totals in fv.items()
+    }
+
+
+def thin_positions(franchise_id: str, value_map: dict | None = None) -> set[str]:
+    """Positions where this franchise is below the league median."""
+    return all_thin_positions(value_map).get(franchise_id, set())

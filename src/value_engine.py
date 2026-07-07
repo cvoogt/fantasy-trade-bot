@@ -1,8 +1,14 @@
+import re
 import pandas as pd
 from src.db import get_conn
 from src import mfl_api, fantasycalc_api
 
 STARTERS_BY_POS = {"QB": 1, "RB": 2, "WR": 3, "TE": 1, "PK": 1, "Def": 1}
+
+_ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th", 6: "6th", 7: "7th"}
+# Upcoming rookie draft year used for slotted (DP_) picks. FantasyCalc only
+# slots one draft class; future picks (FP_) carry their own year.
+PICK_DRAFT_YEAR = 2026
 
 
 def build_player_values() -> pd.DataFrame:
@@ -59,6 +65,53 @@ def dump_csv(path: str = "player_values.csv"):
     df.to_csv(path, index=False)
     print(f"Wrote {len(df)} players to {path}")
     return df
+
+
+def get_pick_value_map() -> dict[str, float]:
+    """{FantasyCalc pick name: dynasty_value}, e.g. '2026 3rd' -> 1108."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT fc_name, dynasty_value FROM fantasycalc_cache WHERE position = 'PICK'"
+    ).fetchall()
+    conn.close()
+    return {r["fc_name"]: float(r["dynasty_value"]) for r in rows}
+
+
+def _pick_info(name: str, val: float) -> dict:
+    return {"name": name, "position": "PICK", "dynasty_value": float(val),
+            "salary": 0.0, "value_per_dollar": 0.0, "vor": 0.0}
+
+
+def make_pick_resolver(pick_map: dict[str, float] | None = None):
+    """Return resolve(token) -> player-info dict for MFL pick tokens, else None.
+
+    Handles future picks (FP_<franchise>_<year>_<round> -> generic round value)
+    and slotted picks (DP_<round0>_<pick0>, 0-indexed -> '{year} Pick R.PP').
+    """
+    if pick_map is None:
+        pick_map = get_pick_value_map()
+
+    def resolve(token: str) -> dict | None:
+        m = re.match(r"FP_\d+_(\d{4})_(\d+)$", token)
+        if m:
+            year, rnd = int(m.group(1)), int(m.group(2))
+            name = f"{year} {_ORD.get(rnd, f'{rnd}th')}"
+            val = pick_map.get(name)
+            return _pick_info(name, val) if val is not None else None
+
+        m = re.match(r"DP_(\d+)_(\d+)$", token)
+        if m:
+            rnd, pick = int(m.group(1)) + 1, int(m.group(2)) + 1
+            name = f"{PICK_DRAFT_YEAR} Pick {rnd}.{pick:02d}"
+            val = pick_map.get(name)
+            if val is None:  # fall back to generic round value
+                name = f"{PICK_DRAFT_YEAR} {_ORD.get(rnd, f'{rnd}th')}"
+                val = pick_map.get(name)
+            return _pick_info(name, val) if val is not None else None
+
+        return None
+
+    return resolve
 
 
 def get_value_map(df: pd.DataFrame | None = None) -> dict[str, dict]:

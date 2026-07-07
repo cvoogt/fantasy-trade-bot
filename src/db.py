@@ -37,10 +37,28 @@ def init_db():
             timestamp INTEGER,
             franchise1 TEXT,
             franchise2 TEXT,
-            verdict TEXT,
+            side1_gave TEXT,
+            side2_gave TEXT,
             value_delta REAL,
+            value_delta_pct REAL,
+            favored INTEGER,
+            verdict TEXT,
+            lopsided INTEGER,
             scanned_at TEXT
         );
     """)
+    _migrate(conn)
     conn.commit()
     conn.close()
+
+
+def _migrate(conn: sqlite3.Connection):
+    """Add any columns missing from older scanned_trades schemas."""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(scanned_trades)")}
+    wanted = {
+        "side1_gave": "TEXT", "side2_gave": "TEXT", "value_delta_pct": "REAL",
+        "favored": "INTEGER", "lopsided": "INTEGER",
+    }
+    for col, coltype in wanted.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE scanned_trades ADD COLUMN {col} {coltype}")
