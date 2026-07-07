@@ -25,6 +25,8 @@ def main():
     sub.add_parser("scan", help="Scan league trades (Phase 3)")
     sub.add_parser("waivers", help="Scan waiver gems")
     sub.add_parser("report", help="Push Discord weekly report")
+    tile_p = sub.add_parser("tile", help="Write/serve Homarr status tile")
+    tile_p.add_argument("--serve", action="store_true", help="Run Flask server")
 
     args = parser.parse_args()
 
@@ -79,8 +81,20 @@ def main():
         print(format_waiver_report(report))
 
     elif args.command == "report":
-        print("Discord report not yet implemented (Phase 5)")
-        sys.exit(1)
+        init_db()
+        from src.discord_report import run_weekly
+        run_weekly()
+
+    elif args.command == "tile":
+        init_db()
+        from src.homarr_tile import write_status, app as flask_app
+        if args.serve:
+            import os
+            flask_app.run(host="0.0.0.0", port=int(os.getenv("HOMARR_PORT", "5055")))
+        else:
+            status = write_status()
+            import json
+            print(json.dumps(status, indent=2))
 
     else:
         parser.print_help()
