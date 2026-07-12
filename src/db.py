@@ -70,6 +70,12 @@ def init_db():
             manual_override INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS draft_pings (
+            round INTEGER,
+            pick INTEGER,
+            PRIMARY KEY (round, pick)
+        );
+
         CREATE TABLE IF NOT EXISTS live_stat_snapshots (
             season INTEGER,
             week INTEGER,

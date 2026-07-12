@@ -85,6 +85,7 @@ class FantasyBot(discord.Client):
         hourly_scan.start()
         weekly_report.start()
         live_event_poll.start()
+        draft_watch.start()
 
     async def alert_channel(self) -> discord.abc.Messageable | None:
         if not DISCORD_ALERT_CHANNEL_ID:
@@ -296,6 +297,39 @@ async def lineup_cmd(interaction: discord.Interaction, week: int | None = None):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="draft", description="Best available in the rookie draft + my remaining picks")
+async def draft_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    from src.draft_assistant import draft_state, best_available
+
+    state = await asyncio.to_thread(draft_state)
+    best = await asyncio.to_thread(best_available, 10, state["drafted_ids"])
+
+    embed = discord.Embed(title="Draft Board", color=EMBED_COLOR)
+    if state["on_clock"]:
+        who = "**YOU ARE ON THE CLOCK**" if state["my_turn"] \
+            else f"Franchise {state['on_clock'].franchise} on the clock"
+        embed.description = f"Pick {state['on_clock'].label} — {who}"
+    else:
+        embed.description = "No draft in progress."
+    embed.add_field(
+        name="Best available (dynasty value)",
+        value="\n".join(
+            f"{i}. **{p['fc_name']}** {p['position']} {p['team']} — {p['dynasty_value']:,.0f}"
+            + ("" if p["in_mfl"] else " *(not in MFL yet)*")
+            for i, p in enumerate(best, 1)
+        ) or "—",
+        inline=False,
+    )
+    if state["my_remaining"]:
+        embed.add_field(
+            name="My remaining picks",
+            value=", ".join(p.label for p in state["my_remaining"]),
+            inline=False,
+        )
+    await interaction.followup.send(embed=embed)
+
+
 # ---------- background tasks ----------
 
 @tasks.loop(seconds=60)
@@ -328,6 +362,43 @@ async def live_event_poll():
 
 @live_event_poll.before_loop
 async def _wait_ready_live():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(seconds=60)
+async def draft_watch():
+    from src.draft_assistant import draft_state, best_available, already_pinged, mark_pinged
+
+    try:
+        state = await asyncio.to_thread(draft_state)
+        if not (state["active"] and state["my_turn"]):
+            return
+        pick = state["on_clock"]
+        if await asyncio.to_thread(already_pinged, pick):
+            return
+        ch = await bot.alert_channel()
+        if ch is None:
+            log.warning("On the clock but no alert channel configured.")
+            return
+        best = await asyncio.to_thread(best_available, 5, state["drafted_ids"])
+        lines = [
+            f"{i}. **{p['fc_name']}** {p['position']} {p['team']} — {p['dynasty_value']:,.0f}"
+            + ("" if p["in_mfl"] else " *(not in MFL yet)*")
+            for i, p in enumerate(best, 1)
+        ]
+        embed = discord.Embed(
+            title=f"⏰ You're on the clock — pick {pick.label}",
+            description="\n".join(lines),
+            color=0xE67E22,
+        )
+        await ch.send("@here", embed=embed)
+        await asyncio.to_thread(mark_pinged, pick)
+    except Exception:
+        log.exception("draft_watch failed")
+
+
+@draft_watch.before_loop
+async def _wait_ready_draft():
     await bot.wait_until_ready()
 
 
