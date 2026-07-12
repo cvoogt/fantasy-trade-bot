@@ -15,6 +15,9 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 | `/player name:` | Dynasty value, salary, value-per-dollar, VOR for any player (fuzzy name ok). |
 | `/roster` | Roster health: value by position vs league median + league rank. |
 | `/scan` | Scan the league for new trades and score them. |
+| `/trades [days]` | League trades from the last X days — two-column what-each-team-received layout with verdicts. |
+| `/tradefinder` | Mutually beneficial 1-for-1 pitches: your surplus for their surplus, both filling below-median positions. |
+| `/matchup [week]` | Head-to-head: opponent, live score, players yet to play. |
 | `/draft` | Rookie draft board: who's on the clock, best available, your remaining picks. |
 
 ## Automatic (no command needed)
@@ -28,6 +31,11 @@ starters scores a TD, picks off a pass, or recovers a fumble.
   your pick in the rookie draft. Never re-pings the same pick.
 - **Lopsided trade watch** — hourly league scan; trades with a value gap ≥ 15%
   get posted with the fleece verdict.
+- **Injury alerts** — hourly diff of Sleeper injury statuses for your roster:
+  downgrades (Q/D/Out/IR) post with next-man-up suggestions, recoveries get a
+  green note.
+- **Waiver-drop alerts** — a player worth ≥ `WAIVER_ALERT_VALUE` (default 1000)
+  newly hitting the FA pool gets posted within the hour.
 - **Weekly reports** — Sunday 10pm and Tuesday 8pm (server time): roster health,
   waiver gems, lopsided trades. Also refreshes the Homarr tile.
 
@@ -99,8 +107,9 @@ supersedes it but both work.
 
 ## Data sources (all free, no keys)
 
-- **MFL API** — rosters, salaries, transactions, live scoring, draft results.
-  `https://{host}.myfantasyleague.com/2025/export`
+- **MFL API** — rosters, salaries, transactions, live scoring, draft results,
+  scoring rules. `https://{host}.myfantasyleague.com/{year}/export` — league
+  year auto-detected (MFL rolls leagues over each spring; pin with `MFL_YEAR`).
 - **FantasyCalc** — dynasty values (1-QB): `api.fantasycalc.com/values/current?isDynasty=true&numQbs=1`. Cached daily.
 - **Sleeper** — weekly projections + near-real-time stats: `api.sleeper.app/v1`.
   Players dump cached daily in SQLite.

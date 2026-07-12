@@ -387,6 +387,39 @@ async def trades_cmd(interaction: discord.Interaction, days: int = 7):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="matchup", description="My head-to-head matchup: opponent, score, players left")
+@app_commands.describe(week="NFL week (defaults to current)")
+async def matchup_cmd(interaction: discord.Interaction, week: int | None = None):
+    await interaction.response.defer(thinking=True)
+    from src.matchup import matchup_status
+    from src.mfl_api import franchise_name
+
+    st = await asyncio.to_thread(matchup_status, week, MFL_FRANCHISE_ID)
+    if st["opponent_id"] is None:
+        await interaction.followup.send(
+            f"No matchup found for week {st['week']} (bye, playoffs cutoff, or offseason)."
+        )
+        return
+    me_name, opp_name = await asyncio.to_thread(
+        lambda: (franchise_name(MFL_FRANCHISE_ID), franchise_name(st["opponent_id"])))
+
+    embed = discord.Embed(
+        title=f"Week {st['week']}: {me_name} vs {opp_name}",
+        color=EMBED_COLOR,
+    )
+    for label, s in ((me_name, st["me"]), (opp_name, st["them"])):
+        score = s["score"] if s["score"] not in (None, "") else "—"
+        extra = ""
+        if s["yet_to_play"] is not None:
+            extra = f"\nYet to play: {s['yet_to_play']}"
+            if s["playing"] not in (None, ""):
+                extra += f" · playing now: {s['playing']}"
+        embed.add_field(name=label, value=f"**{score}**{extra}", inline=True)
+    if not st["live"]:
+        embed.set_footer(text="No live games right now — scores are final/last known.")
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="tradefinder", description="Find mutually beneficial trades to propose")
 async def tradefinder_cmd(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
