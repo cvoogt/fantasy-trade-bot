@@ -301,6 +301,88 @@ async def lineup_cmd(interaction: discord.Interaction, week: int | None = None):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="trades", description="League trades from the last X days, with verdicts")
+@app_commands.describe(days="How many days back to look (default 7)")
+async def trades_cmd(interaction: discord.Interaction, days: int = 7):
+    await interaction.response.defer(thinking=True)
+    from src.scanner import recent_trades
+    from src.mfl_api import franchise_name
+
+    rows = await asyncio.to_thread(recent_trades, days)
+    if not rows:
+        await interaction.followup.send(f"No trades in the last {days} day(s).")
+        return
+
+    value_map = await asyncio.to_thread(_cache.get)
+    pick_resolver = await asyncio.to_thread(lambda: make_pick_resolver(get_pick_value_map()))
+    names = await asyncio.to_thread(lambda: {r["franchise1"]: franchise_name(r["franchise1"])
+                                             for r in rows}
+                                    | {r["franchise2"]: franchise_name(r["franchise2"])
+                                       for r in rows})
+
+    # fallback names for players FantasyCalc doesn't value (not in value_map)
+    unresolved = {
+        tok.strip()
+        for r in rows for side in (r["side1_gave"], r["side2_gave"])
+        for tok in (side or "").split(",")
+        if tok.strip() and tok.strip().isdigit() and tok.strip() not in value_map
+    }
+    mfl_names: dict[str, str] = {}
+    if unresolved:
+        from src.mfl_api import get_players
+        mfl_names = await asyncio.to_thread(
+            lambda: {p["id"]: p.get("name", p["id"]) for p in get_players()
+                     if p.get("id") in unresolved})
+
+    def _pretty_pick(tok: str) -> str | None:
+        import re
+        m = re.match(r"FP_\d+_(\d{4})_(\d+)$", tok)
+        if m:
+            ords = {1: "1st", 2: "2nd", 3: "3rd"}
+            rnd = int(m.group(2))
+            return f"{m.group(1)} {ords.get(rnd, f'{rnd}th')}"
+        m = re.match(r"DP_(\d+)_(\d+)$", tok)
+        if m:
+            return f"Pick {int(m.group(1)) + 1}.{int(m.group(2)) + 1:02d}"
+        return None
+
+    def asset_names(gave: str) -> str:
+        out = []
+        for tok in (gave or "").split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            info = value_map.get(tok) or pick_resolver(tok)
+            out.append(info["name"] if info
+                       else mfl_names.get(tok) or _pretty_pick(tok) or tok)
+        return ", ".join(out) or "(nothing)"
+
+    embed = discord.Embed(
+        title=f"Trades — last {days} day(s)",
+        color=EMBED_COLOR,
+    )
+    for r in rows[:12]:
+        ts = datetime.datetime.fromtimestamp(r["timestamp"]).strftime("%b %d")
+        f1, f2 = names[r["franchise1"]], names[r["franchise2"]]
+        if r["verdict"] == "FAIR":
+            verdict = "FAIR"
+        else:
+            winner = f1 if r["favored"] == 1 else f2
+            verdict = f"{r['verdict']} — favors {winner} (gap {r['value_delta_pct']*100:.0f}%)"
+        embed.add_field(
+            name=f"{ts}: {f1} ↔ {f2}",
+            value=(
+                f"{f1} sent: {asset_names(r['side1_gave'])}\n"
+                f"{f2} sent: {asset_names(r['side2_gave'])}\n"
+                f"Verdict: **{verdict}**"
+            ),
+            inline=False,
+        )
+    if len(rows) > 12:
+        embed.set_footer(text=f"Showing 12 of {len(rows)} trades.")
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="draft", description="Best available in the rookie draft + my remaining picks")
 async def draft_cmd(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)

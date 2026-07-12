@@ -89,6 +89,19 @@ def scan_trades(value_map: dict | None = None) -> list[dict]:
     return new_results
 
 
+def recent_trades(days: int = 7) -> list[dict]:
+    """All scored trades from the last N days, most recent first."""
+    import time
+    cutoff = int(time.time()) - days * 86400
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM scanned_trades WHERE timestamp >= ? ORDER BY timestamp DESC",
+        (cutoff,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def recent_lopsided(limit: int = 10) -> list[dict]:
     """Lopsided trades from the store, most recent first (for the Discord report)."""
     conn = get_conn()
