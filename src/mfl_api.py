@@ -1,11 +1,41 @@
+import datetime
 import requests
-from src.config import MFL_BASE_URL, MFL_LEAGUE_ID
+from src.config import MFL_HOST, MFL_LEAGUE_ID, MFL_YEAR
+
+_detected_year: int | None = None
+
+
+def league_year() -> int:
+    """Current MFL league year. MFL rolls leagues over each spring, so the
+    current calendar year may not exist yet early in the year — probe it once
+    and fall back to the previous year."""
+    global _detected_year
+    if MFL_YEAR:
+        return int(MFL_YEAR)
+    if _detected_year is not None:
+        return _detected_year
+    this_year = datetime.date.today().year
+    for cand in (this_year, this_year - 1):
+        try:
+            resp = requests.get(
+                f"https://{MFL_HOST}.myfantasyleague.com/{cand}/export",
+                params={"TYPE": "league", "L": MFL_LEAGUE_ID, "JSON": "1"},
+                timeout=15,
+            )
+            if resp.ok and "league" in resp.json():
+                _detected_year = cand
+                return cand
+        except Exception:
+            continue
+    _detected_year = this_year - 1  # last resort; next call re-raises naturally
+    return _detected_year
 
 
 def _get(endpoint: str, params: dict | None = None) -> dict:
     params = params or {}
     params.update({"L": MFL_LEAGUE_ID, "JSON": "1"})
-    resp = requests.get(f"{MFL_BASE_URL}?TYPE={endpoint}", params=params, timeout=30)
+    base = f"https://{MFL_HOST}.myfantasyleague.com/{league_year()}/export"
+    resp = requests.get(f"{base}?TYPE={endpoint}", params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
 

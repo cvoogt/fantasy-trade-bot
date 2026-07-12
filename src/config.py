@@ -12,7 +12,9 @@ DISCORD_GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
 DISCORD_ALERT_CHANNEL_ID = int(os.getenv("DISCORD_ALERT_CHANNEL_ID", "0") or 0)
 LOPSIDED_THRESHOLD = float(os.getenv("LOPSIDED_THRESHOLD", "0.15"))
 
-MFL_BASE_URL = f"https://{MFL_HOST}.myfantasyleague.com/2025/export"
+# League year: empty = auto-detect (current calendar year, falling back to the
+# previous one before MFL's spring rollover). Set explicitly to pin a year.
+MFL_YEAR = os.getenv("MFL_YEAR", "")
 FANTASYCALC_BASE_URL = "https://api.fantasycalc.com/values/current"
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "trade_bot.db")
