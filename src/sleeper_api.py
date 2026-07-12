@@ -41,8 +41,8 @@ def refresh_players_cache(force: bool = False) -> int:
         conn.execute(
             """INSERT INTO sleeper_players
                (sleeper_id, name, position, team, espn_id, rotowire_id,
-                sportradar_id, stats_id, status, fetched_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                sportradar_id, stats_id, status, injury_status, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 sid,
                 p.get("full_name") or "",
@@ -53,6 +53,7 @@ def refresh_players_cache(force: bool = False) -> int:
                 p.get("sportradar_id"),
                 str(p["stats_id"]) if p.get("stats_id") else None,
                 p.get("status") or "",
+                p.get("injury_status") or "",
                 now,
             ),
         )

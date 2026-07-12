@@ -86,6 +86,7 @@ class FantasyBot(discord.Client):
         weekly_report.start()
         live_event_poll.start()
         draft_watch.start()
+        injury_watch.start()
 
     async def alert_channel(self) -> discord.abc.Messageable | None:
         if not DISCORD_ALERT_CHANNEL_ID:
@@ -489,6 +490,49 @@ async def draft_watch():
 
 @draft_watch.before_loop
 async def _wait_ready_draft():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(hours=1)
+async def injury_watch():
+    from src.injuries import check_injuries, bench_replacements
+
+    try:
+        changes = await asyncio.to_thread(check_injuries)
+        if not changes:
+            return
+        ch = await bot.alert_channel()
+        if ch is None:
+            log.warning("Injury changes found but no alert channel configured.")
+            return
+        for c in changes:
+            old = c.old or "Healthy"
+            new = c.new or "Healthy"
+            if c.is_downgrade:
+                emoji, color = "🚑", 0xCC3333
+            else:
+                emoji, color = "💪", 0x2E8B57
+            embed = discord.Embed(
+                title=f"{emoji} {c.name} ({c.position}): {old} → {new}",
+                color=color,
+            )
+            if c.is_downgrade:
+                subs = await asyncio.to_thread(
+                    bench_replacements, c.position, MFL_FRANCHISE_ID, {c.mfl_id})
+                if subs:
+                    embed.add_field(
+                        name="Next man up",
+                        value="\n".join(
+                            f"{s['name']} (val {s['dynasty_value']:,.0f})" for s in subs),
+                        inline=False,
+                    )
+            await ch.send(embed=embed)
+    except Exception:
+        log.exception("injury_watch failed")
+
+
+@injury_watch.before_loop
+async def _wait_ready_injury():
     await bot.wait_until_ready()
 
 

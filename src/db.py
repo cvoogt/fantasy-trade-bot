@@ -92,12 +92,16 @@ def init_db():
 
 
 def _migrate(conn: sqlite3.Connection):
-    """Add any columns missing from older scanned_trades schemas."""
-    have = {r["name"] for r in conn.execute("PRAGMA table_info(scanned_trades)")}
-    wanted = {
-        "side1_gave": "TEXT", "side2_gave": "TEXT", "value_delta_pct": "REAL",
-        "favored": "INTEGER", "lopsided": "INTEGER",
+    """Add columns missing from older schemas (idempotent)."""
+    wanted_by_table = {
+        "scanned_trades": {
+            "side1_gave": "TEXT", "side2_gave": "TEXT", "value_delta_pct": "REAL",
+            "favored": "INTEGER", "lopsided": "INTEGER",
+        },
+        "sleeper_players": {"injury_status": "TEXT"},
     }
-    for col, coltype in wanted.items():
-        if col not in have:
-            conn.execute(f"ALTER TABLE scanned_trades ADD COLUMN {col} {coltype}")
+    for table, wanted in wanted_by_table.items():
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for col, coltype in wanted.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
