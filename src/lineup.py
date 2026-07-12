@@ -143,6 +143,16 @@ def lineup_advice(
     projections = get_projections(season, week)
     mfl_names = {p["id"]: p for p in mfl_api.get_players()}
 
+    # league-accurate scoring; fall back to Sleeper PPR if rules fetch fails
+    try:
+        from src.scoring import fetch_rules, project_points
+        rules = fetch_rules()
+        def _points(proj: dict) -> float:
+            return project_points(proj, rules)
+    except Exception:
+        def _points(proj: dict) -> float:
+            return float(proj.get("pts_ppr") or 0)
+
     # my roster
     my_ids: list[str] = []
     for fr in mfl_api.get_rosters():
@@ -157,15 +167,15 @@ def lineup_advice(
     for pid in my_ids:
         meta = mfl_names.get(pid, {})
         sid = smap.get(pid)
-        proj = (projections.get(sid) or {}).get("pts_ppr") if sid else None
+        proj_row = projections.get(sid) if sid else None
         entry = {
             "mfl_id": pid,
             "name": meta.get("name", pid),
             "position": meta.get("position", ""),
-            "proj": float(proj) if proj else 0.0,
+            "proj": _points(proj_row) if proj_row else 0.0,
         }
         players.append(entry)
-        if proj is None:
+        if proj_row is None:
             no_projection.append(entry)
 
     rules = parse_lineup_rules()
