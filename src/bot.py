@@ -387,6 +387,46 @@ async def trades_cmd(interaction: discord.Interaction, days: int = 7):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="tradefinder", description="Find mutually beneficial trades to propose")
+async def tradefinder_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    from src.trade_finder import find_trades
+    from src.mfl_api import franchise_name
+
+    value_map = await asyncio.to_thread(_cache.get)
+    proposals = await asyncio.to_thread(find_trades, MFL_FRANCHISE_ID, value_map)
+    if not proposals:
+        await interaction.followup.send(
+            "No mutually beneficial trades found right now — your depth and the "
+            "league's needs don't line up inside the fair band."
+        )
+        return
+
+    embed = discord.Embed(
+        title="Trade ideas worth pitching",
+        description="1-for-1s where both sides fill a below-median position, "
+                    "value inside the fair/lean band.",
+        color=EMBED_COLOR,
+    )
+    for i, p in enumerate(proposals, 1):
+        partner = await asyncio.to_thread(franchise_name, p["other_franchise"])
+        net_txt = f"+{p['net']:,.0f}" if p["net"] >= 0 else f"{p['net']:,.0f}"
+        embed.add_field(
+            name=f"{i}. Pitch {partner}",
+            value=(
+                f"Send **{p['give']['name']}** ({p['give']['position']}, "
+                f"{p['give']['dynasty_value']:,.0f})\n"
+                f"For **{p['get']['name']}** ({p['get']['position']}, "
+                f"{p['get']['dynasty_value']:,.0f})\n"
+                f"Your net: **{net_txt}** (gap {p['gap_pct']*100:.0f}%) · "
+                f"fills your {p['fills_my']}, their {p['fills_their']} · "
+                f"salary Δ {p['salary_delta']:+,.0f}"
+            ),
+            inline=False,
+        )
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="draft", description="Best available in the rookie draft + my remaining picks")
 async def draft_cmd(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
