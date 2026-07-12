@@ -540,6 +540,22 @@ async def _wait_ready_injury():
 async def hourly_scan():
     try:
         value_map = await asyncio.to_thread(_cache.get)
+
+        # waiver-drop watch: valuable players newly in the FA pool
+        from src.waivers import check_new_fas
+        new_fas = await asyncio.to_thread(check_new_fas, value_map)
+        if new_fas:
+            ch = await bot.alert_channel()
+            if ch is not None:
+                embed = discord.Embed(
+                    title="🎣 Valuable player(s) hit the waiver wire",
+                    description="\n".join(
+                        f"**{p['name']}** ({p['position']}) — value {p['dynasty_value']:,.0f}"
+                        for p in new_fas[:10]),
+                    color=0xE6B422,
+                )
+                await ch.send(embed=embed)
+
         results = await asyncio.to_thread(scan_trades, value_map)
         lopsided = [r for r in results if r["lopsided"]]
         if not lopsided:

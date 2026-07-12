@@ -11,6 +11,8 @@ DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
 DISCORD_ALERT_CHANNEL_ID = int(os.getenv("DISCORD_ALERT_CHANNEL_ID", "0") or 0)
 LOPSIDED_THRESHOLD = float(os.getenv("LOPSIDED_THRESHOLD", "0.15"))
+# Minimum dynasty value for a new free agent to trigger a drop alert.
+WAIVER_ALERT_VALUE = float(os.getenv("WAIVER_ALERT_VALUE", "1000"))
 
 # League year: empty = auto-detect (current calendar year, falling back to the
 # previous one before MFL's spring rollover). Set explicitly to pin a year.

@@ -91,6 +91,38 @@ def waiver_gems(
     }
 
 
+def check_new_fas(value_map: dict | None = None) -> list[dict]:
+    """Diff the FA pool vs the last snapshot; return newly available players
+    worth alerting on (dynasty value >= WAIVER_ALERT_VALUE). First run is a
+    silent baseline. Players leaving the pool just update the snapshot."""
+    from src.config import WAIVER_ALERT_VALUE
+    from src.db import get_conn
+
+    if value_map is None:
+        value_map = get_value_map()
+
+    current = _fa_ids()
+    conn = get_conn()
+    prev = {r["mfl_id"] for r in conn.execute("SELECT mfl_id FROM fa_pool")}
+
+    first_run = not prev
+    new_ids = current - prev
+
+    conn.execute("DELETE FROM fa_pool")
+    conn.executemany("INSERT INTO fa_pool (mfl_id) VALUES (?)",
+                     [(pid,) for pid in current])
+    conn.commit()
+    conn.close()
+
+    if first_run:
+        return []
+    return sorted(
+        ({"mfl_id": pid, **value_map[pid]} for pid in new_ids
+         if pid in value_map and value_map[pid]["dynasty_value"] >= WAIVER_ALERT_VALUE),
+        key=lambda p: p["dynasty_value"], reverse=True,
+    )
+
+
 def format_waiver_report(report: dict) -> str:
     lines = ["=== WAIVER GEMS ==="]
     thin = report["thin_positions"]

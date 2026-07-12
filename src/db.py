@@ -70,6 +70,10 @@ def init_db():
             manual_override INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS fa_pool (
+            mfl_id TEXT PRIMARY KEY
+        );
+
         CREATE TABLE IF NOT EXISTS draft_pings (
             round INTEGER,
             pick INTEGER,
