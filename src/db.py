@@ -46,6 +46,39 @@ def init_db():
             lopsided INTEGER,
             scanned_at TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS sleeper_players (
+            sleeper_id TEXT PRIMARY KEY,
+            name TEXT,
+            position TEXT,
+            team TEXT,
+            espn_id TEXT,
+            rotowire_id TEXT,
+            sportradar_id TEXT,
+            stats_id TEXT,
+            status TEXT,
+            fetched_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sleeper_crosswalk (
+            mfl_id TEXT PRIMARY KEY,
+            sleeper_id TEXT,
+            mfl_name TEXT,
+            sleeper_name TEXT,
+            position TEXT,
+            join_key TEXT,
+            manual_override INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS live_stat_snapshots (
+            season INTEGER,
+            week INTEGER,
+            sleeper_id TEXT,
+            stat TEXT,
+            count REAL,
+            updated_at TEXT,
+            PRIMARY KEY (season, week, sleeper_id, stat)
+        );
     """)
     _migrate(conn)
     conn.commit()
