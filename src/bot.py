@@ -84,6 +84,7 @@ class FantasyBot(discord.Client):
             await self.tree.sync()
         hourly_scan.start()
         weekly_report.start()
+        live_event_poll.start()
 
     async def alert_channel(self) -> discord.abc.Messageable | None:
         if not DISCORD_ALERT_CHANNEL_ID:
@@ -296,6 +297,39 @@ async def lineup_cmd(interaction: discord.Interaction, week: int | None = None):
 
 
 # ---------- background tasks ----------
+
+@tasks.loop(seconds=60)
+async def live_event_poll():
+    from src.live_events import in_game_window, my_starters, poll_events
+    from src.sleeper_api import get_nfl_state
+
+    if not in_game_window():
+        return
+    try:
+        state = await asyncio.to_thread(get_nfl_state)
+        if state.get("season_type") not in ("regular", "post"):
+            return
+        season, week = int(state["season"]), max(int(state.get("week") or 1), 1)
+
+        watched = await asyncio.to_thread(my_starters)
+        events = await asyncio.to_thread(poll_events, season, week, watched)
+        if not events:
+            return
+        ch = await bot.alert_channel()
+        if ch is None:
+            log.warning("Live events detected but no alert channel configured.")
+            return
+        for ev in events:
+            nth = f" — #{ev.total} on the day" if ev.total > 1 else ""
+            await ch.send(f"{ev.emoji} **{ev.player_name}** {ev.label}!{nth}")
+    except Exception:
+        log.exception("live_event_poll failed")
+
+
+@live_event_poll.before_loop
+async def _wait_ready_live():
+    await bot.wait_until_ready()
+
 
 @tasks.loop(hours=1)
 async def hourly_scan():
