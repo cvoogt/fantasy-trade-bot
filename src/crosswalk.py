@@ -130,6 +130,29 @@ def unmatched_valuable(top_n: int = 25) -> list[dict]:
     return out[:top_n]
 
 
+def resolve_player(query: str, limit: int = 3, min_score: int = 60) -> list[dict]:
+    """Fuzzy-resolve a typed player name to crosswalk entries, best first.
+
+    Matches against both the MFL name and the FantasyCalc name so
+    'bijan', 'Robinson, Bijan', and 'Bijan Robinson' all hit.
+    """
+    q = _normalize_name(query)
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM crosswalk").fetchall()
+    conn.close()
+
+    scored = []
+    for r in rows:
+        score = max(
+            fuzz.token_set_ratio(q, _normalize_name(r["mfl_name"])),
+            fuzz.token_set_ratio(q, _normalize_name(r["fc_name"])),
+        )
+        if score >= min_score:
+            scored.append((score, dict(r)))
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return [{**row, "resolve_score": s} for s, row in scored[:limit]]
+
+
 def get_fc_name(mfl_id: str) -> str | None:
     conn = get_conn()
     row = conn.execute(

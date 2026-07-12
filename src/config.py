@@ -7,6 +7,9 @@ MFL_LEAGUE_ID = os.getenv("MFL_LEAGUE_ID", "68447")
 MFL_HOST = os.getenv("MFL_HOST", "www46")
 MFL_FRANCHISE_ID = os.getenv("MFL_FRANCHISE_ID", "0002")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+DISCORD_GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
+DISCORD_ALERT_CHANNEL_ID = int(os.getenv("DISCORD_ALERT_CHANNEL_ID", "0") or 0)
 LOPSIDED_THRESHOLD = float(os.getenv("LOPSIDED_THRESHOLD", "0.15"))
 
 MFL_BASE_URL = f"https://{MFL_HOST}.myfantasyleague.com/2025/export"

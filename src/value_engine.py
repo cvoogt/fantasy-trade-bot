@@ -109,6 +109,12 @@ def make_pick_resolver(pick_map: dict[str, float] | None = None):
                 val = pick_map.get(name)
             return _pick_info(name, val) if val is not None else None
 
+        # Typed pick names: '2026 1st', '2026 pick 1.01', '2027 2nd', ...
+        lowered = {k.lower(): k for k in pick_map}
+        key = lowered.get(token.strip().lower())
+        if key:
+            return _pick_info(key, pick_map[key])
+
         return None
 
     return resolve
