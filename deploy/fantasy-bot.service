@@ -1,0 +1,15 @@
+[Unit]
+Description=Fantasy Trade Bot (Discord)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/fantasy-trade-bot
+ExecStart=/opt/fantasy-trade-bot/.venv/bin/python -m src.bot
+Restart=on-failure
+RestartSec=10
+# .env is read by the app itself (python-dotenv); no EnvironmentFile needed.
+
+[Install]
+WantedBy=multi-user.target
