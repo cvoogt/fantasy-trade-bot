@@ -66,12 +66,13 @@ def _trades_section() -> str:
         lines.append("  None flagged.")
         return "\n".join(lines)
 
+    from src.mfl_api import franchise_name
     for row in lopsided:
         ts = datetime.fromtimestamp(row["timestamp"], tz=timezone.utc).strftime("%b %d")
         winner = row["franchise1"] if row["favored"] == 1 else row["franchise2"]
         loser = row["franchise2"] if row["favored"] == 1 else row["franchise1"]
         lines.append(
-            f"  {ts}  {winner} FLEECED {loser}  "
+            f"  {ts}  {franchise_name(winner)} FLEECED {franchise_name(loser)}  "
             f"(gap {row['value_delta_pct']*100:.0f}%, {row['verdict']})"
         )
     return "\n".join(lines)

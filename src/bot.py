@@ -162,12 +162,16 @@ async def scan_cmd(interaction: discord.Interaction):
     if not results:
         await interaction.followup.send("No new trades since last scan.")
         return
+    from src.mfl_api import franchise_name
+    names = await asyncio.to_thread(lambda: {
+        r["franchise1"]: franchise_name(r["franchise1"]) for r in results
+    } | {r["franchise2"]: franchise_name(r["franchise2"]) for r in results})
     lines = []
     for r in results:
         res = r["result"]
         tag = " **← LOPSIDED**" if r["lopsided"] else ""
         lines.append(
-            f"`{r['franchise1']} ↔ {r['franchise2']}` {res.verdict} "
+            f"**{names[r['franchise1']]}** ↔ **{names[r['franchise2']]}** — {res.verdict} "
             f"(gap {res.value_delta_pct*100:.0f}%){tag}"
         )
     embed = discord.Embed(
@@ -307,8 +311,9 @@ async def draft_cmd(interaction: discord.Interaction):
 
     embed = discord.Embed(title="Draft Board", color=EMBED_COLOR)
     if state["on_clock"]:
+        from src.mfl_api import franchise_name
         who = "**YOU ARE ON THE CLOCK**" if state["my_turn"] \
-            else f"Franchise {state['on_clock'].franchise} on the clock"
+            else f"**{await asyncio.to_thread(franchise_name, state['on_clock'].franchise)}** on the clock"
         embed.description = f"Pick {state['on_clock'].label} — {who}"
     else:
         embed.description = "No draft in progress."
@@ -414,14 +419,17 @@ async def hourly_scan():
         if ch is None:
             log.warning("Lopsided trades found but no alert channel configured.")
             return
+        from src.mfl_api import franchise_name
         for r in lopsided:
             res = r["result"]
             winner = r["franchise1"] if res.favored == 1 else r["franchise2"]
             loser = r["franchise2"] if res.favored == 1 else r["franchise1"]
+            w, l = await asyncio.to_thread(
+                lambda: (franchise_name(winner), franchise_name(loser)))
             embed = discord.Embed(
                 title="Lopsided trade detected",
                 description=(
-                    f"**{winner}** fleeced **{loser}** "
+                    f"**{w}** fleeced **{l}** "
                     f"(gap {res.value_delta_pct*100:.0f}%)"
                 ),
                 color=0xCC3333,

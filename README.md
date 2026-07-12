@@ -62,6 +62,15 @@ cp deploy/fantasy-bot.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now fantasy-bot
 ```
 
+### Updating
+
+```bash
+bash /opt/fantasy-trade-bot/deploy/update.sh
+```
+
+Pulls the latest code, syncs dependencies, restarts the service. (First time:
+`chmod +x deploy/update.sh` if you want to run it directly.)
+
 ### Optional: keep the daily value refresh cron
 
 ```cron

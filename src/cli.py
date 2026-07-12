@@ -47,12 +47,13 @@ def main():
         if not results:
             print("No new trades since last scan.")
         else:
+            from src.mfl_api import franchise_name
             lopsided = [r for r in results if r["lopsided"]]
             print(f"Scanned {len(results)} new trade(s); {len(lopsided)} lopsided.\n")
             for r in results:
                 res = r["result"]
                 tag = "  <<< LOPSIDED" if r["lopsided"] else ""
-                print(f"[{r['franchise1']} <-> {r['franchise2']}] "
+                print(f"[{franchise_name(r['franchise1'])} <-> {franchise_name(r['franchise2'])}] "
                       f"{res.verdict} (gap {res.value_delta_pct*100:.0f}%){tag}")
 
     elif args.command == "score":

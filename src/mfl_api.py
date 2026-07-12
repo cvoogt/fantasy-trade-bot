@@ -35,6 +35,28 @@ def get_league() -> dict:
     return _get("league").get("league", {})
 
 
+_franchise_names: dict[str, str] = {}
+_franchise_names_at: float = 0.0
+
+
+def franchise_names() -> dict[str, str]:
+    """{franchise_id: team name}, cached for an hour so renames still show up."""
+    global _franchise_names, _franchise_names_at
+    import time
+    if not _franchise_names or time.monotonic() - _franchise_names_at > 3600:
+        franchises = get_league().get("franchises", {}).get("franchise", [])
+        if isinstance(franchises, dict):
+            franchises = [franchises]
+        _franchise_names = {f.get("id", ""): f.get("name", f.get("id", "?"))
+                            for f in franchises}
+        _franchise_names_at = time.monotonic()
+    return _franchise_names
+
+
+def franchise_name(fid: str) -> str:
+    return franchise_names().get(fid, fid)
+
+
 def get_weekly_results(week: str | int | None = None) -> dict:
     """Weekly results incl. each franchise's submitted starters."""
     params = {"W": str(week)} if week is not None else {}
