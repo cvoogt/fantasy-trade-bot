@@ -346,7 +346,7 @@ async def trades_cmd(interaction: discord.Interaction, days: int = 7):
             return f"Pick {int(m.group(1)) + 1}.{int(m.group(2)) + 1:02d}"
         return None
 
-    def asset_names(gave: str) -> str:
+    def asset_lines(gave: str) -> str:
         out = []
         for tok in (gave or "").split(","):
             tok = tok.strip()
@@ -355,31 +355,34 @@ async def trades_cmd(interaction: discord.Interaction, days: int = 7):
             info = value_map.get(tok) or pick_resolver(tok)
             out.append(info["name"] if info
                        else mfl_names.get(tok) or _pretty_pick(tok) or tok)
-        return ", ".join(out) or "(nothing)"
+        return "\n".join(out) or "*(nothing)*"
 
     embed = discord.Embed(
         title=f"Trades — last {days} day(s)",
         color=EMBED_COLOR,
     )
-    for r in rows[:12]:
+    # 3 fields per trade (2 side-by-side columns + verdict row); 25-field embed cap
+    shown = rows[:8]
+    for r in shown:
         ts = datetime.datetime.fromtimestamp(r["timestamp"]).strftime("%b %d")
         f1, f2 = names[r["franchise1"]], names[r["franchise2"]]
         if r["verdict"] == "FAIR":
-            verdict = "FAIR"
+            verdict = "Fair"
+        elif r["verdict"] == "LEAN":
+            winner = f1 if r["favored"] == 1 else f2
+            verdict = f"Lean — favors {winner} (gap {r['value_delta_pct']*100:.0f}%)"
         else:
             winner = f1 if r["favored"] == 1 else f2
-            verdict = f"{r['verdict']} — favors {winner} (gap {r['value_delta_pct']*100:.0f}%)"
-        embed.add_field(
-            name=f"{ts}: {f1} ↔ {f2}",
-            value=(
-                f"{f1} sent: {asset_names(r['side1_gave'])}\n"
-                f"{f2} sent: {asset_names(r['side2_gave'])}\n"
-                f"Verdict: **{verdict}**"
-            ),
-            inline=False,
-        )
-    if len(rows) > 12:
-        embed.set_footer(text=f"Showing 12 of {len(rows)} trades.")
+            loser = f2 if r["favored"] == 1 else f1
+            verdict = f"Fleece — {winner} fleeced {loser} (gap {r['value_delta_pct']*100:.0f}%)"
+        # each column shows what that team RECEIVED (= the other side's assets)
+        embed.add_field(name=f"📅 {ts} — {f1} received:",
+                        value=asset_lines(r["side2_gave"]), inline=True)
+        embed.add_field(name=f"{f2} received:",
+                        value=asset_lines(r["side1_gave"]), inline=True)
+        embed.add_field(name="​", value=f"Verdict: **{verdict}**", inline=False)
+    if len(rows) > len(shown):
+        embed.set_footer(text=f"Showing {len(shown)} of {len(rows)} trades.")
     await interaction.followup.send(embed=embed)
 
 
