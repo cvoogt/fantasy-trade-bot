@@ -261,6 +261,40 @@ async def trade_cmd(interaction: discord.Interaction, give: str, get: str):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="lineup", description="Optimal starting lineup from weekly projections")
+@app_commands.describe(week="NFL week (defaults to current)")
+async def lineup_cmd(interaction: discord.Interaction, week: int | None = None):
+    await interaction.response.defer(thinking=True)
+    from src.lineup import lineup_advice
+
+    adv = await asyncio.to_thread(lineup_advice, MFL_FRANCHISE_ID, None, week)
+
+    embed = discord.Embed(
+        title=f"Optimal Lineup — {adv['season']} week {adv['week']}",
+        color=EMBED_COLOR,
+    )
+    by_slot: dict[str, list] = {}
+    for p in adv["optimal"]:
+        by_slot.setdefault(p["slot"], []).append(p)
+    for slot, ps in by_slot.items():
+        embed.add_field(
+            name=slot,
+            value="\n".join(f"{p['name']} ({p['proj']:.1f})" for p in ps),
+            inline=True,
+        )
+    if adv["start"] or adv["sit"]:
+        changes = [f"START {p['name']} ({p['proj']:.1f})" for p in adv["start"]]
+        changes += [f"SIT {p['name']} ({p['proj']:.1f})" for p in adv["sit"]]
+        embed.add_field(name="Changes vs your current lineup",
+                        value="\n".join(changes), inline=False)
+    elif adv["current"]:
+        embed.add_field(name="Changes vs your current lineup",
+                        value="None — already optimal.", inline=False)
+    else:
+        embed.set_footer(text="No submitted lineup found to compare (offseason or lineup not set).")
+    await interaction.followup.send(embed=embed)
+
+
 # ---------- background tasks ----------
 
 @tasks.loop(hours=1)

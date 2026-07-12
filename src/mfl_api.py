@@ -30,6 +30,27 @@ def get_free_agents() -> list[dict]:
     return data.get("freeAgents", {}).get("leagueUnit", {}).get("player", [])
 
 
+def get_league() -> dict:
+    """League config: starting-lineup rules, roster size, franchises."""
+    return _get("league").get("league", {})
+
+
+def get_weekly_results(week: str | int | None = None) -> dict:
+    """Weekly results incl. each franchise's submitted starters."""
+    params = {"W": str(week)} if week is not None else {}
+    return _get("weeklyResults", params).get("weeklyResults", {})
+
+
+def get_live_scoring() -> dict:
+    """Live scoring for the current week (starters, scores, players left)."""
+    return _get("liveScoring").get("liveScoring", {})
+
+
+def get_draft_results() -> dict:
+    """Rookie/startup draft picks (live-updating during an active draft)."""
+    return _get("draftResults").get("draftResults", {})
+
+
 def get_transactions(trans_type: str = "TRADE") -> list[dict]:
     data = _get("transactions", {"TRANS_TYPE": trans_type})
     txns = data.get("transactions", {}).get("transaction", [])
