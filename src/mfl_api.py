@@ -27,8 +27,9 @@ def league_year() -> int:
                 return cand
         except Exception:
             continue
-    _detected_year = this_year - 1  # last resort; next call re-raises naturally
-    return _detected_year
+    # Probes failed (rate limit / outage): guess but do NOT cache, so a 429
+    # at startup can't pin the wrong league year for the process lifetime.
+    return this_year - 1
 
 
 # Short-TTL response memo: bursts of bot commands reuse identical GETs
