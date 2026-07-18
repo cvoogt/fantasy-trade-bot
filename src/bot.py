@@ -45,6 +45,10 @@ class ValueMapCache:
             self._at = time.monotonic()
         return self._map
 
+    def clear(self):
+        self._map = None
+        self._at = 0.0
+
 
 _cache = ValueMapCache()
 
@@ -421,21 +425,14 @@ async def matchup_cmd(interaction: discord.Interaction, week: int | None = None)
     await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="tradefinder", description="Find mutually beneficial trades to propose")
-async def tradefinder_cmd(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True)
+def _build_tradefinder_embed(value_map: dict) -> discord.Embed | None:
+    """Blocking: run the finder and render the embed (None = no proposals)."""
     from src.trade_finder import find_trades
     from src.mfl_api import franchise_name
 
-    value_map = await asyncio.to_thread(_cache.get)
-    proposals = await asyncio.to_thread(find_trades, MFL_FRANCHISE_ID, value_map)
+    proposals = find_trades(MFL_FRANCHISE_ID, value_map)
     if not proposals:
-        await interaction.followup.send(
-            "No mutually beneficial trades found right now — your depth and the "
-            "league's needs don't line up inside the fair band."
-        )
-        return
-
+        return None
     embed = discord.Embed(
         title="Trade ideas worth pitching",
         description="1-for-1s where both sides fill a below-median position, "
@@ -443,21 +440,152 @@ async def tradefinder_cmd(interaction: discord.Interaction):
         color=EMBED_COLOR,
     )
     for i, p in enumerate(proposals, 1):
-        partner = await asyncio.to_thread(franchise_name, p["other_franchise"])
+        partner = franchise_name(p["other_franchise"])
         net_txt = f"+{p['net']:,.0f}" if p["net"] >= 0 else f"{p['net']:,.0f}"
         embed.add_field(
             name=f"{i}. Pitch {partner}",
             value=(
                 f"Send **{p['give']['name']}** ({p['give']['position']}, "
-                f"{p['give']['dynasty_value']:,.0f})\n"
+                f"val {p['give']['dynasty_value']:,.0f}, ${p['give']['salary']:,.0f})\n"
                 f"For **{p['get']['name']}** ({p['get']['position']}, "
-                f"{p['get']['dynasty_value']:,.0f})\n"
+                f"val {p['get']['dynasty_value']:,.0f}, ${p['get']['salary']:,.0f})\n"
                 f"Your net: **{net_txt}** (gap {p['gap_pct']*100:.0f}%) · "
                 f"fills your {p['fills_my']}, their {p['fills_their']} · "
-                f"salary Δ {p['salary_delta']:+,.0f}"
+                f"cap change {p['salary_delta']:+,.0f}"
             ),
             inline=False,
         )
+    return embed
+
+
+class TradeFinderView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=900)
+
+    @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        _cache.clear()  # fresh MFL rosters/salaries + FantasyCalc cache + IDP values
+        value_map = await asyncio.to_thread(_cache.get)
+        embed = await asyncio.to_thread(_build_tradefinder_embed, value_map)
+        if embed is None:
+            await interaction.edit_original_response(
+                content="No mutually beneficial trades found right now.",
+                embed=None, view=self)
+            return
+        embed.set_footer(text="Refreshed just now")
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
+@bot.tree.command(name="tradefinder", description="Find mutually beneficial trades to propose")
+async def tradefinder_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    value_map = await asyncio.to_thread(_cache.get)
+    embed = await asyncio.to_thread(_build_tradefinder_embed, value_map)
+    if embed is None:
+        await interaction.followup.send(
+            "No mutually beneficial trades found right now — your depth and the "
+            "league's needs don't line up inside the fair band.",
+            view=TradeFinderView(),
+        )
+        return
+    await interaction.followup.send(embed=embed, view=TradeFinderView())
+
+
+async def _team_autocomplete(interaction: discord.Interaction, current: str):
+    from src.mfl_api import franchise_names
+    names = await asyncio.to_thread(franchise_names)
+    return [
+        app_commands.Choice(name=n, value=fid)
+        for fid, n in names.items()
+        if current.lower() in n.lower()
+    ][:10]
+
+
+@bot.tree.command(name="salary", description="Salary-cap analysis (defaults to my team)")
+@app_commands.describe(team="Another team to analyze (defaults to yours)")
+@app_commands.autocomplete(team=_team_autocomplete)
+async def salary_cmd(interaction: discord.Interaction, team: str | None = None):
+    await interaction.response.defer(thinking=True)
+    from src.salary_tools import team_salary_summary
+    from src.mfl_api import franchise_name
+
+    fid = team or MFL_FRANCHISE_ID
+    value_map = await asyncio.to_thread(_cache.get)
+    s = await asyncio.to_thread(team_salary_summary, fid, value_map)
+    name = await asyncio.to_thread(franchise_name, fid)
+
+    embed = discord.Embed(title=f"💰 Salary Analysis — {name}", color=EMBED_COLOR)
+    cap_line = f"Payroll: **${s['total_salary']:,.0f}**"
+    if s["cap"]:
+        cap_line += f" / ${s['cap']:,.0f} cap → space **${s['cap_space']:,.0f}**"
+    cap_line += f"\nLeague payroll rank: #{s['league_rank']} of {len(s['league_totals'])}"
+    embed.description = cap_line
+
+    embed.add_field(
+        name="By position group",
+        value="\n".join(f"{g}: ${v:,.0f}"
+                        for g, v in sorted(s["by_group"].items(), key=lambda t: -t[1])),
+        inline=True,
+    )
+    embed.add_field(
+        name="Top contracts",
+        value="\n".join(f"{p['name']} ${p['salary']:,.0f}" for p in s["top_contracts"]),
+        inline=True,
+    )
+    embed.add_field(
+        name="Best bang-for-buck",
+        value="\n".join(
+            f"{p['name']} (val {p['dynasty_value']:,.0f} @ ${p['salary']:,.0f})"
+            for p in s["best_value"]) or "—",
+        inline=False,
+    )
+    embed.add_field(
+        name="Worst contracts",
+        value="\n".join(
+            f"{p['name']} (val {p['dynasty_value']:,.0f} @ ${p['salary']:,.0f})"
+            for p in s["worst_value"]) or "—",
+        inline=False,
+    )
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="cuts", description="Recommended cuts: cap relief for low-value contracts")
+@app_commands.describe(team="Another team to analyze (defaults to yours)")
+@app_commands.autocomplete(team=_team_autocomplete)
+async def cuts_cmd(interaction: discord.Interaction, team: str | None = None):
+    await interaction.response.defer(thinking=True)
+    from src.salary_tools import cut_candidates
+    from src.mfl_api import franchise_name
+
+    fid = team or MFL_FRANCHISE_ID
+    value_map = await asyncio.to_thread(_cache.get)
+    cands = await asyncio.to_thread(cut_candidates, fid, value_map)
+    name = await asyncio.to_thread(franchise_name, fid)
+
+    if not cands:
+        await interaction.followup.send(
+            f"No obvious cuts for **{name}** — nobody expensive is sitting below "
+            "replacement level."
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"✂️ Recommended Cuts — {name}",
+        description="Above-minimum salaries on players below replacement level "
+                    "at their position, worst cap-efficiency first.",
+        color=0xCC6633,
+    )
+    total_relief = 0.0
+    for i, p in enumerate(cands, 1):
+        total_relief += p["salary"]
+        embed.add_field(
+            name=f"{i}. {p['name']} ({p['position']})",
+            value=(f"Cap relief: **${p['salary']:,.0f}** · "
+                   f"value lost: {p['dynasty_value']:,.0f} · VOR {p['vor']:,.0f}"),
+            inline=False,
+        )
+    embed.set_footer(text=f"Cutting all {len(cands)} frees ${total_relief:,.0f}")
     await interaction.followup.send(embed=embed)
 
 

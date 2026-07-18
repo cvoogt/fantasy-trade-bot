@@ -31,13 +31,26 @@ def league_year() -> int:
     return _detected_year
 
 
+# Short-TTL response memo: bursts of bot commands reuse identical GETs
+# (rosters, players, salaries) within seconds — don't hammer MFL for them.
+_memo: dict[tuple, tuple[float, dict]] = {}
+_MEMO_TTL = 30.0
+
+
 def _get(endpoint: str, params: dict | None = None) -> dict:
+    import time
     params = params or {}
     params.update({"L": MFL_LEAGUE_ID, "JSON": "1"})
+    key = (endpoint, tuple(sorted(params.items())))
+    hit = _memo.get(key)
+    if hit and time.monotonic() - hit[0] < _MEMO_TTL:
+        return hit[1]
     base = f"https://{MFL_HOST}.myfantasyleague.com/{league_year()}/export"
     resp = requests.get(f"{base}?TYPE={endpoint}", params=params, timeout=30)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    _memo[key] = (time.monotonic(), data)
+    return data
 
 
 def get_players() -> list[dict]:
