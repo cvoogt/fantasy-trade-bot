@@ -89,22 +89,18 @@ _GROUP_MIN_STARTERS = {"QB": 1, "RB": 1, "WR": 2, "TE": 1, "PK": 1,
                        "DT+DE": 3, "LB": 3, "CB+S": 3}
 
 
-def cut_candidates(fid: str, value_map: dict | None = None, top_n: int = 8) -> list[dict]:
-    """Cut suggestions: expensive players whose dynasty value doesn't justify
-    the cap hit. Ranked by salary per point of value. Excluded: startable
-    players (positive VOR), minimum-type deals, and any cut that would leave
-    a lineup group without enough bodies to start."""
-    if value_map is None:
-        value_map = get_value_map()
-    summary = team_salary_summary(fid, value_map)
-    paid = [p for p in summary["players"] if p["salary"] > 0]
+def select_cuts(players: list[dict], top_n: int = 8) -> list[dict]:
+    """Pure cut-selection over a roster list ({name, position, salary,
+    dynasty_value, vor}). Excluded: startable players (positive VOR),
+    minimum-type deals (bottom salary quartile), and any cut that would
+    leave a lineup group without enough bodies to start plus one cushion."""
+    paid = [p for p in players if p["salary"] > 0]
     if not paid:
         return []
-    # "minimum-type deal" = bottom quartile of this roster's salaries
     floor = sorted(p["salary"] for p in paid)[len(paid) // 4]
 
     group_counts: dict[str, int] = {}
-    for p in summary["players"]:
+    for p in players:
         g = group_of(p["position"])
         group_counts[g] = group_counts.get(g, 0) + 1
 
@@ -117,7 +113,6 @@ def cut_candidates(fid: str, value_map: dict | None = None, top_n: int = 8) -> l
     for p in cands:
         g = group_of(p["position"])
         remaining = group_counts.get(g, 0) - cuts_per_group.get(g, 0)
-        # keep a one-man cushion above the lineup minimum
         if remaining - 1 <= _GROUP_MIN_STARTERS.get(g, 0):
             continue
         cuts_per_group[g] = cuts_per_group.get(g, 0) + 1
@@ -125,3 +120,11 @@ def cut_candidates(fid: str, value_map: dict | None = None, top_n: int = 8) -> l
         if len(out) >= top_n:
             break
     return out
+
+
+def cut_candidates(fid: str, value_map: dict | None = None, top_n: int = 8) -> list[dict]:
+    """Cut suggestions for a franchise (see select_cuts for the rules)."""
+    if value_map is None:
+        value_map = get_value_map()
+    summary = team_salary_summary(fid, value_map)
+    return select_cuts(summary["players"], top_n)
