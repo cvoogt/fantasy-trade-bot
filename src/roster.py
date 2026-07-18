@@ -1,7 +1,18 @@
-"""Roster depth helpers: positional value per franchise vs league median."""
+"""Roster depth helpers: positional value per franchise vs league median.
+
+Depth is measured per lineup GROUP, not raw position — this league starts
+DT+DE and CB+S as combined slots, so a roster with zero DTs but five DEs
+is deep, not thin, on the defensive line."""
 import statistics
 from src import mfl_api
 from src.value_engine import get_value_map
+
+_GROUP_OF = {"DT": "DT+DE", "DE": "DT+DE", "CB": "CB+S", "S": "CB+S"}
+
+
+def group_of(position: str) -> str:
+    """Lineup group for a position ('DT' -> 'DT+DE', 'RB' -> 'RB')."""
+    return _GROUP_OF.get(position, position)
 
 
 def _player_ids(roster_entry: dict) -> list[str]:
@@ -24,9 +35,8 @@ def franchise_positional_value(value_map: dict | None = None) -> dict[str, dict[
             info = value_map.get(pid)
             if not info:
                 continue
-            pos_totals[info["position"]] = (
-                pos_totals.get(info["position"], 0.0) + info["dynasty_value"]
-            )
+            g = group_of(info["position"])
+            pos_totals[g] = pos_totals.get(g, 0.0) + info["dynasty_value"]
         out[fid] = pos_totals
     return out
 

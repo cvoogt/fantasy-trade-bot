@@ -117,7 +117,8 @@ async def waivers_cmd(interaction: discord.Interaction):
         embed.description = f"Thin positions: {', '.join(sorted(thin))}"
     for i, pair in enumerate(report["pairs"], 1):
         gem, drop = pair["gem"], pair["drop"]
-        tag = " • fills thin spot" if gem["position"] in thin else ""
+        from src.roster import group_of
+        tag = " • fills thin spot" if group_of(gem["position"]) in thin else ""
         val = (f"ADD **{gem['name']}** ({gem['position']}, val {gem['dynasty_value']:.0f}){tag}")
         if drop:
             val += f"\nDROP {drop['name']} ({drop['position']}, val {drop['dynasty_value']:.0f})"

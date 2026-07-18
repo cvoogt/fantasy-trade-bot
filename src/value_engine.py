@@ -121,7 +121,10 @@ def make_pick_resolver(pick_map: dict[str, float] | None = None):
 
 
 def get_value_map(df: pd.DataFrame | None = None) -> dict[str, dict]:
-    """Return {mfl_id: {name, position, dynasty_value, salary, value_per_dollar, vor}}."""
+    """Return {mfl_id: {name, position, dynasty_value, salary, value_per_dollar, vor}}.
+
+    Offense comes from FantasyCalc; IDP players (which FantasyCalc doesn't
+    cover) are synthesized from league-scored production — see idp_values.py."""
     if df is None:
         df = build_player_values()
     out: dict[str, dict] = {}
@@ -134,4 +137,51 @@ def get_value_map(df: pd.DataFrame | None = None) -> dict[str, dict]:
             "value_per_dollar": float(r["value_per_dollar"]),
             "vor": float(r["vor"]),
         }
+    _augment_idp(out)
     return out
+
+
+# IDP starters per position group in this league (group minimums x 10 teams
+# sets the replacement level for VOR).
+_IDP_GROUPS = {"DT": "DL", "DE": "DL", "LB": "LB", "CB": "DB", "S": "DB"}
+_IDP_GROUP_STARTERS = {"DL": 3, "LB": 3, "DB": 3}
+_NUM_TEAMS = 10
+
+
+def _augment_idp(out: dict[str, dict]):
+    """Add synthesized entries for IDP players missing from the value map."""
+    try:
+        from src.idp_values import compute_idp_values
+        idp = compute_idp_values()
+    except Exception:
+        return  # offense-only map is still usable
+
+    salaries = {}
+    try:
+        for p in mfl_api.get_salaries():
+            salaries[p.get("id", "")] = float(p.get("salary") or 0)
+    except Exception:
+        pass
+
+    by_group: dict[str, list[float]] = {}
+    for v in idp.values():
+        by_group.setdefault(_IDP_GROUPS[v["position"]], []).append(v["dynasty_value"])
+    replacement = {}
+    for group, vals in by_group.items():
+        vals.sort(reverse=True)
+        idx = min(_IDP_GROUP_STARTERS[group] * _NUM_TEAMS, len(vals) - 1)
+        replacement[group] = vals[idx]
+
+    for mfl_id, v in idp.items():
+        if mfl_id in out:
+            continue
+        sal = salaries.get(mfl_id, 0.0)
+        val = float(v["dynasty_value"])
+        out[mfl_id] = {
+            "name": v["name"],
+            "position": v["position"],
+            "dynasty_value": val,
+            "salary": sal,
+            "value_per_dollar": val / sal if sal > 0 else 0.0,
+            "vor": val - replacement[_IDP_GROUPS[v["position"]]],
+        }

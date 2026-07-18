@@ -114,6 +114,15 @@ supersedes it but both work.
 - **Sleeper** — weekly projections + near-real-time stats: `api.sleeper.app/v1`.
   Players dump cached daily in SQLite.
 
+## IDP dynasty values
+
+FantasyCalc only values offense, so defensive players get synthesized values:
+last season's stats scored under this league's rules, age-adjusted, normalized
+so the top IDP = `IDP_TOP_VALUE` (default 4000, env-tunable). This feeds the
+trade scorer, `/tradefinder`, `/roster`, `/player`, and waiver logic. Roster
+depth is measured per lineup group (DT+DE, CB+S combined) to match how this
+league actually starts defenders.
+
 ## Player ID crosswalks
 
 - **MFL ↔ FantasyCalc**: fuzzy name+position+team (normalized team abbreviations,

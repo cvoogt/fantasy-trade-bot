@@ -10,7 +10,7 @@ the guys behind the stud, not the stud).
 """
 from src.config import MFL_FRANCHISE_ID, LOPSIDED_THRESHOLD
 from src import mfl_api
-from src.roster import franchise_positional_value, league_median_by_position
+from src.roster import franchise_positional_value, league_median_by_position, group_of
 from src.value_engine import get_value_map
 
 MAX_PROPOSALS = 5
@@ -46,13 +46,13 @@ def find_trades(franchise_id: str = MFL_FRANCHISE_ID,
         return {pos for pos, med in medians.items()
                 if fv.get(fid, {}).get(pos, 0.0) < med}
 
-    def tradeable(fid: str, positions: set[str]) -> list[dict]:
-        """Players at the given positions, minus the best one per position."""
+    def tradeable(fid: str, groups: set[str]) -> list[dict]:
+        """Players in the given lineup groups, minus the best one per group."""
         by_pos: dict[str, list[dict]] = {}
         for pid in rosters.get(fid, []):
             info = value_map.get(pid)
-            if info and info["position"] in positions and info["dynasty_value"] > 0:
-                by_pos.setdefault(info["position"], []).append(
+            if info and group_of(info["position"]) in groups and info["dynasty_value"] > 0:
+                by_pos.setdefault(group_of(info["position"]), []).append(
                     {"mfl_id": pid, **info})
         out = []
         for pos, players in by_pos.items():

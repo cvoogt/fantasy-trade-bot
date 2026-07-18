@@ -83,12 +83,13 @@ def score_trade(
 
     flags: list[str] = []
     if thin_lookup is not None:
+        from src.roster import group_of
         for owner, side in ((side1_owner, s1), (side2_owner, s2)):
             if owner is None:
                 continue
             thin = thin_lookup(owner)
-            shipped_positions = {p["position"] for p in side.players}
-            for pos in shipped_positions & thin:
+            shipped = {group_of(p["position"]) for p in side.players}
+            for pos in shipped & thin:
                 flags.append(f"Franchise {owner} ships {pos} but is thin there")
 
     return TradeResult(

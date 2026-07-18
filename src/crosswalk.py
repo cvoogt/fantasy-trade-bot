@@ -133,22 +133,39 @@ def unmatched_valuable(top_n: int = 25) -> list[dict]:
 def resolve_player(query: str, limit: int = 3, min_score: int = 60) -> list[dict]:
     """Fuzzy-resolve a typed player name to crosswalk entries, best first.
 
-    Matches against both the MFL name and the FantasyCalc name so
-    'bijan', 'Robinson, Bijan', and 'Bijan Robinson' all hit.
+    Searches the FantasyCalc crosswalk (offense) and the Sleeper crosswalk
+    (covers IDP players FantasyCalc doesn't list). Matches MFL and
+    display names, so 'bijan', 'Robinson, Bijan', and 'Bijan Robinson' hit.
     """
     q = _normalize_name(query)
     conn = get_conn()
     rows = conn.execute("SELECT * FROM crosswalk").fetchall()
+    sleeper_rows = conn.execute("SELECT * FROM sleeper_crosswalk").fetchall()
     conn.close()
 
-    scored = []
+    candidates: dict[str, dict] = {}
     for r in rows:
+        candidates[r["mfl_id"]] = {
+            "mfl_id": r["mfl_id"], "mfl_name": r["mfl_name"],
+            "fc_name": r["fc_name"], "position": r["position"],
+            "team": r["team"],
+        }
+    for r in sleeper_rows:
+        # FantasyCalc entry wins if the player is in both
+        candidates.setdefault(r["mfl_id"], {
+            "mfl_id": r["mfl_id"], "mfl_name": r["mfl_name"],
+            "fc_name": r["sleeper_name"], "position": r["position"],
+            "team": "",
+        })
+
+    scored = []
+    for c in candidates.values():
         score = max(
-            fuzz.token_set_ratio(q, _normalize_name(r["mfl_name"])),
-            fuzz.token_set_ratio(q, _normalize_name(r["fc_name"])),
+            fuzz.token_set_ratio(q, _normalize_name(c["mfl_name"] or "")),
+            fuzz.token_set_ratio(q, _normalize_name(c["fc_name"] or "")),
         )
         if score >= min_score:
-            scored.append((score, dict(r)))
+            scored.append((score, c))
     scored.sort(key=lambda t: t[0], reverse=True)
     return [{**row, "resolve_score": s} for s, row in scored[:limit]]
 

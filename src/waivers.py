@@ -129,10 +129,11 @@ def format_waiver_report(report: dict) -> str:
     if thin:
         lines.append(f"Your thin positions: {', '.join(sorted(thin))}\n")
 
+    from src.roster import group_of
     for i, pair in enumerate(report["pairs"], 1):
         gem = pair["gem"]
         drop = pair["drop"]
-        tag = " [fills thin spot]" if gem["position"] in thin else ""
+        tag = " [fills thin spot]" if group_of(gem["position"]) in thin else ""
         lines.append(
             f"{i}. ADD  {gem['name']:<22} {gem['position']:<3} "
             f"val={gem['dynasty_value']:.0f}  VPD={gem['value_per_dollar']:.3f}{tag}"
