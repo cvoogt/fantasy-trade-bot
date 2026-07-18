@@ -18,7 +18,10 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 | `/trades [days]` | League trades from the last X days — two-column what-each-team-received layout with verdicts. |
 | `/tradefinder` | Mutually beneficial 1-for-1 pitches: your surplus for their surplus, both filling below-median positions. |
 | `/matchup [week]` | Head-to-head: opponent, live score, players yet to play. |
+| `/salary [team]` | Salary-cap analysis: payroll vs cap, spend by group, best/worst contracts. Defaults to you. |
+| `/cuts [team]` | Recommended cuts: cap relief on below-replacement contracts, lineup-safe. |
 | `/draft` | Rookie draft board: who's on the clock, best available, your remaining picks. |
+| `/update` | Pull the latest bot code, sync deps, restart in place (owner-only if `DISCORD_OWNER_ID` set). |
 
 ## Automatic (no command needed)
 

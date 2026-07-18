@@ -10,6 +10,8 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", "0") or 0)
 DISCORD_ALERT_CHANNEL_ID = int(os.getenv("DISCORD_ALERT_CHANNEL_ID", "0") or 0)
+# If set, /update only works for this Discord user id.
+DISCORD_OWNER_ID = int(os.getenv("DISCORD_OWNER_ID", "0") or 0)
 LOPSIDED_THRESHOLD = float(os.getenv("LOPSIDED_THRESHOLD", "0.15"))
 # Minimum dynasty value for a new free agent to trigger a drop alert.
 WAIVER_ALERT_VALUE = float(os.getenv("WAIVER_ALERT_VALUE", "1000"))

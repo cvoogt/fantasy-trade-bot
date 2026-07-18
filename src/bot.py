@@ -19,6 +19,7 @@ from src.config import (
     DISCORD_BOT_TOKEN,
     DISCORD_GUILD_ID,
     DISCORD_ALERT_CHANNEL_ID,
+    DISCORD_OWNER_ID,
     MFL_FRANCHISE_ID,
 )
 from src.db import init_db
@@ -621,6 +622,56 @@ async def draft_cmd(interaction: discord.Interaction):
             inline=False,
         )
     await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="update", description="Pull the latest bot code and restart")
+async def update_cmd(interaction: discord.Interaction):
+    if DISCORD_OWNER_ID and interaction.user.id != DISCORD_OWNER_ID:
+        await interaction.response.send_message(
+            "Only the bot owner can run /update.", ephemeral=True)
+        return
+    await interaction.response.defer(thinking=True)
+
+    import os
+    import subprocess
+    import sys
+
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def run(*cmd) -> subprocess.CompletedProcess:
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=repo, timeout=300)
+
+    old = (await asyncio.to_thread(run, "git", "rev-parse", "HEAD")).stdout.strip()
+    pull = await asyncio.to_thread(run, "git", "pull", "--ff-only")
+    if pull.returncode != 0:
+        await interaction.followup.send(
+            f"❌ `git pull` failed:\n```{(pull.stderr or pull.stdout)[-1500:]}```")
+        return
+    new = (await asyncio.to_thread(run, "git", "rev-parse", "HEAD")).stdout.strip()
+
+    if old == new:
+        await interaction.followup.send("Already up to date — no restart needed.")
+        return
+
+    changes = (await asyncio.to_thread(
+        run, "git", "log", "--oneline", f"{old}..{new}")).stdout.strip()
+    pip = await asyncio.to_thread(
+        run, sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt")
+    if pip.returncode != 0:
+        await interaction.followup.send(
+            f"⚠️ Code pulled but `pip install` failed — NOT restarting:\n"
+            f"```{(pip.stderr or pip.stdout)[-1500:]}```")
+        return
+
+    await interaction.followup.send(
+        f"✅ Updated ({len(changes.splitlines())} commit(s)) — restarting now:\n"
+        f"```{changes[-1500:]}```"
+    )
+    log.info("Restarting via /update:\n%s", changes)
+    # Replace this process with a fresh one; systemd sees the same service,
+    # a foreground run just re-execs in place. `-m src.bot` needs the repo cwd.
+    os.chdir(repo)
+    os.execv(sys.executable, [sys.executable, "-m", "src.bot"])
 
 
 # ---------- background tasks ----------
