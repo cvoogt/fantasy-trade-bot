@@ -21,6 +21,7 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 | `/salary [team]` | Salary-cap analysis: payroll vs cap, spend by group, best/worst contracts. Defaults to you. |
 | `/cuts [team]` | Recommended cuts: cap relief on below-replacement contracts, lineup-safe. |
 | `/draft` | Rookie draft board: who's on the clock, best available, your remaining picks. |
+| `/projections [scope] [position] [week]` | Top projected players under league scoring — season or weekly, all positions incl. IDP, multi-source blend. |
 | `/update` | Pull the latest bot code, sync deps, restart in place (owner-only if `DISCORD_OWNER_ID` set). |
 
 ## Automatic (no command needed)
@@ -114,8 +115,12 @@ supersedes it but both work.
   scoring rules. `https://{host}.myfantasyleague.com/{year}/export` — league
   year auto-detected (MFL rolls leagues over each spring; pin with `MFL_YEAR`).
 - **FantasyCalc** — dynasty values (1-QB): `api.fantasycalc.com/values/current?isDynasty=true&numQbs=1`. Cached daily.
-- **Sleeper** — weekly projections + near-real-time stats: `api.sleeper.app/v1`.
-  Players dump cached daily in SQLite.
+- **Sleeper** — weekly + season projections (all positions incl. full IDP stat
+  lines) and near-real-time stats: `api.sleeper.app/v1`. Players dump cached
+  daily in SQLite.
+- **ESPN** (unofficial fantasy API) — second projection source for offense,
+  blended 50/50 with Sleeper at the league-scored-points level. Projections
+  cache refreshes every 6 hours (`proj_points` table).
 
 ## IDP dynasty values
 

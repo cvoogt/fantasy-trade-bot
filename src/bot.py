@@ -92,6 +92,7 @@ class FantasyBot(discord.Client):
         live_event_poll.start()
         draft_watch.start()
         injury_watch.start()
+        projections_refresh.start()
 
     async def alert_channel(self) -> discord.abc.Messageable | None:
         if not DISCORD_ALERT_CHANNEL_ID:
@@ -199,11 +200,30 @@ async def player_cmd(interaction: discord.Interaction, name: str):
         await interaction.followup.send(f"No player matching **{name}**.")
         return
 
+    from src.projections import get_projected_points
+    from src.sleeper_api import get_nfl_state
+    try:
+        state = await asyncio.to_thread(get_nfl_state)
+        season = int(state["season"])
+        season_proj = await asyncio.to_thread(get_projected_points, season, None)
+        wk = int(state.get("week") or 0)
+        week_proj = (await asyncio.to_thread(get_projected_points, season, wk)
+                     if state.get("season_type") == "regular" and wk >= 1 else {})
+    except Exception:
+        season_proj, week_proj = {}, {}
+
     embed = discord.Embed(title="Player Lookup", color=EMBED_COLOR)
     for c in cands:
         info = value_map.get(c["mfl_id"])
         if not info:
             continue
+        proj_lines = ""
+        sp = season_proj.get(c["mfl_id"])
+        if sp:
+            proj_lines += f"\nProj (season): **{sp['points']:.0f} pts**"
+        wp = week_proj.get(c["mfl_id"])
+        if wp:
+            proj_lines += f"\nProj (this week): **{wp['points']:.1f} pts**"
         embed.add_field(
             name=f"{c['fc_name']} ({info['position']}, {c['team']})",
             value=(
@@ -211,6 +231,7 @@ async def player_cmd(interaction: discord.Interaction, name: str):
                 f"Salary: ${info['salary']:,.0f}\n"
                 f"Value/$: {info['value_per_dollar']:.4f}\n"
                 f"VOR: {info['vor']:,.0f}"
+                f"{proj_lines}"
             ),
             inline=False,
         )
@@ -624,6 +645,72 @@ async def draft_cmd(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="projections", description="Top projected players under league scoring")
+@app_commands.describe(
+    scope="Season-long or a specific week",
+    position="Filter to a position (QB/RB/WR/TE/PK/DT/DE/LB/CB/S)",
+    week="Week number (only with scope=week; defaults to current)",
+)
+@app_commands.choices(scope=[
+    app_commands.Choice(name="season", value="season"),
+    app_commands.Choice(name="week", value="week"),
+])
+async def projections_cmd(interaction: discord.Interaction, scope: str = "season",
+                          position: str | None = None, week: int | None = None):
+    await interaction.response.defer(thinking=True)
+    from src.projections import get_projected_points
+    from src.sleeper_api import get_nfl_state
+    from src.mfl_api import get_players, get_rosters
+
+    state = await asyncio.to_thread(get_nfl_state)
+    season = int(state["season"])
+    wk = None
+    if scope == "week":
+        wk = week or max(int(state.get("week") or 1), 1)
+
+    proj = await asyncio.to_thread(get_projected_points, season, wk)
+    if not proj:
+        await interaction.followup.send("No projections available for that scope yet.")
+        return
+
+    def _meta():
+        players = {p["id"]: p for p in get_players()}
+        mine = set()
+        for fr in get_rosters():
+            if fr.get("id") == MFL_FRANCHISE_ID:
+                pl = fr.get("player", [])
+                if isinstance(pl, dict):
+                    pl = [pl]
+                mine = {p.get("id") for p in pl}
+        return players, mine
+
+    players, mine = await asyncio.to_thread(_meta)
+
+    rows = []
+    for mfl_id, p in proj.items():
+        meta = players.get(mfl_id)
+        if not meta:
+            continue
+        pos = meta.get("position", "?")
+        if position and pos.upper() != position.upper():
+            continue
+        rows.append((p["points"], meta.get("name", mfl_id), pos,
+                     mfl_id in mine, p["sources"]))
+    rows.sort(reverse=True)
+
+    label = f"week {wk}" if wk else "season"
+    title = f"Projections — {label}" + (f" — {position.upper()}" if position else "")
+    lines = []
+    for i, (pts, name, pos, is_mine, sources) in enumerate(rows[:15], 1):
+        star = " ⭐" if is_mine else ""
+        src = "²" if sources > 1 else ""
+        lines.append(f"`{i:>2}.` **{name}** ({pos}) — {pts:.1f}{src}{star}")
+    embed = discord.Embed(title=title, description="\n".join(lines) or "—",
+                          color=EMBED_COLOR)
+    embed.set_footer(text="League scoring · ² = multi-source blend · ⭐ = your roster")
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="update", description="Pull the latest bot code and restart")
 async def update_cmd(interaction: discord.Interaction):
     if DISCORD_OWNER_ID and interaction.user.id != DISCORD_OWNER_ID:
@@ -743,6 +830,29 @@ async def draft_watch():
 
 @draft_watch.before_loop
 async def _wait_ready_draft():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(hours=6)
+async def projections_refresh():
+    from src.projections import refresh_projections
+    from src.sleeper_api import get_nfl_state
+
+    try:
+        state = await asyncio.to_thread(get_nfl_state)
+        season = int(state["season"])
+        n = await asyncio.to_thread(refresh_projections, season, None)
+        log.info("Season projections refreshed: %d players", n)
+        if state.get("season_type") == "regular" and int(state.get("week") or 0) >= 1:
+            wk = int(state["week"])
+            n = await asyncio.to_thread(refresh_projections, season, wk)
+            log.info("Week %d projections refreshed: %d players", wk, n)
+    except Exception:
+        log.exception("projections_refresh failed")
+
+
+@projections_refresh.before_loop
+async def _wait_ready_proj():
     await bot.wait_until_ready()
 
 

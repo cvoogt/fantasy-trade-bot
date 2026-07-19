@@ -163,19 +163,33 @@ def lineup_advice(
             my_ids = [p.get("id", "") for p in players]
             break
 
+    # blended multi-source weekly points (Sleeper + ESPN under league scoring);
+    # falls back to direct Sleeper scoring for anyone the blend misses
+    try:
+        from src.projections import get_projected_points
+        blended = get_projected_points(season, week)
+    except Exception:
+        blended = {}
+
     players, no_projection = [], []
     for pid in my_ids:
         meta = mfl_names.get(pid, {})
         sid = smap.get(pid)
         proj_row = projections.get(sid) if sid else None
+        if pid in blended:
+            pts = blended[pid]["points"]
+        elif proj_row:
+            pts = _points(proj_row)
+        else:
+            pts = 0.0
         entry = {
             "mfl_id": pid,
             "name": meta.get("name", pid),
             "position": meta.get("position", ""),
-            "proj": _points(proj_row) if proj_row else 0.0,
+            "proj": pts,
         }
         players.append(entry)
-        if proj_row is None:
+        if proj_row is None and pid not in blended:
             no_projection.append(entry)
 
     rules = parse_lineup_rules()

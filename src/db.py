@@ -70,6 +70,16 @@ def init_db():
             manual_override INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS proj_points (
+            season INTEGER,
+            scope TEXT,
+            mfl_id TEXT,
+            points REAL,
+            sources INTEGER,
+            updated_at TEXT,
+            PRIMARY KEY (season, scope, mfl_id)
+        );
+
         CREATE TABLE IF NOT EXISTS fa_pool (
             mfl_id TEXT PRIMARY KEY
         );
