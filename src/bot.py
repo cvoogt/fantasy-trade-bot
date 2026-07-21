@@ -511,10 +511,77 @@ class TradeFinderView(discord.ui.View):
         await interaction.edit_original_response(embed=embed, view=self)
 
 
-@bot.tree.command(name="tradefinder", description="Find mutually beneficial trades to propose")
-async def tradefinder_cmd(interaction: discord.Interaction):
+def _build_target_embed(value_map: dict, target: dict) -> discord.Embed:
+    """Blocking: render packages I could send to acquire one target player."""
+    from src.trade_finder import find_trades_for_player
+    from src.mfl_api import franchise_name
+
+    res = find_trades_for_player(target["mfl_id"], MFL_FRANCHISE_ID, value_map)
+    t = res["target"]
+    title = f"Trades for {t.get('name', target['fc_name'])}"
+
+    if res["status"] == "mine":
+        return discord.Embed(title=title, color=EMBED_COLOR,
+                             description="You already own this player.")
+    if res["status"] == "free_agent":
+        return discord.Embed(title=title, color=EMBED_COLOR,
+                             description="This player is a free agent — no trade "
+                                         "needed, grab them off waivers.")
+    if res["status"] == "no_value":
+        return discord.Embed(title=title, color=EMBED_COLOR,
+                             description="No dynasty value data for this player, "
+                                         "so I can't build fair packages.")
+
+    owner = franchise_name(res["owner"])
+    if not res["offers"]:
+        return discord.Embed(
+            title=title, color=EMBED_COLOR,
+            description=(f"Owned by **{owner}** "
+                        f"(val {t['dynasty_value']:,.0f}, ${t['salary']:,.0f}).\n\n"
+                        "No fair package on your roster lands inside the trade band. "
+                        "You'd need to overpay or add picks — try `/trade` to test one."))
+
+    embed = discord.Embed(
+        title=title,
+        description=(f"Owned by **{owner}** · {t['position']} · "
+                    f"val {t['dynasty_value']:,.0f} · ${t['salary']:,.0f}\n"
+                    f"{len(res['offers'])} package(s) you could send:"),
+        color=EMBED_COLOR,
+    )
+    for i, o in enumerate(res["offers"], 1):
+        give_txt = " + ".join(
+            f"**{p['name']}** ({p['position']}, {p['dynasty_value']:,.0f}, ${p['salary']:,.0f})"
+            for p in o["give"]
+        )
+        net_txt = f"+{o['net']:,.0f}" if o["net"] >= 0 else f"{o['net']:,.0f}"
+        fills = (" · fills their " + ", ".join(sorted(o["fills_their"]))
+                 if o["fills_their"] else "")
+        embed.add_field(
+            name=f"{i}. Send {give_txt}",
+            value=(f"Package value {o['give_value']:,.0f} · your net **{net_txt}** "
+                   f"(gap {o['gap_pct']*100:.0f}%) · cap change {o['salary_delta']:+,.0f}"
+                   f"{fills}"),
+            inline=False,
+        )
+    embed.set_footer(text="Your net = target value − what you send · + means value in your favor")
+    return embed
+
+
+@bot.tree.command(name="tradefinder", description="Find trades — league-wide, or packages for a target player")
+@app_commands.describe(player="Target a specific player you want to acquire (fuzzy name ok)")
+async def tradefinder_cmd(interaction: discord.Interaction, player: str | None = None):
     await interaction.response.defer(thinking=True)
     value_map = await asyncio.to_thread(_cache.get)
+
+    if player:
+        cands = await asyncio.to_thread(resolve_player, player, 1)
+        if not cands:
+            await interaction.followup.send(f"No player matching **{player}**.")
+            return
+        embed = await asyncio.to_thread(_build_target_embed, value_map, cands[0])
+        await interaction.followup.send(embed=embed)
+        return
+
     embed = await asyncio.to_thread(_build_tradefinder_embed, value_map)
     if embed is None:
         await interaction.followup.send(

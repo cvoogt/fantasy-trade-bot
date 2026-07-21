@@ -8,6 +8,8 @@ the fair/lean band so it's actually sendable.
 My most valuable player at each position is never offered (depth comes from
 the guys behind the stud, not the stud).
 """
+from itertools import combinations
+
 from src.config import MFL_FRANCHISE_ID, LOPSIDED_THRESHOLD
 from src import mfl_api
 from src.roster import franchise_positional_value, league_median_by_position, group_of
@@ -108,3 +110,112 @@ def find_trades(franchise_id: str = MFL_FRANCHISE_ID,
         if len(out) >= MAX_PROPOSALS:
             break
     return out
+
+
+def find_trades_for_player(
+    target_mfl_id: str,
+    franchise_id: str = MFL_FRANCHISE_ID,
+    value_map: dict | None = None,
+    max_offers: int = MAX_PROPOSALS,
+) -> dict:
+    """Build several distinct packages I could send to acquire one target player.
+
+    Returns:
+        {
+          "target": {"mfl_id", "name", "position", "dynasty_value", "salary", ...},
+          "owner": franchise_id that owns the target (None if free agent),
+          "status": "ok" | "free_agent" | "mine" | "no_value",
+          "offers": [{"give": [players], "give_value", "net", "gap_pct",
+                      "salary_delta", "fills_their": set[str]}, ...],
+        }
+    """
+    if value_map is None:
+        value_map = get_value_map()
+
+    target = value_map.get(target_mfl_id)
+    rosters = _rosters_by_franchise()
+
+    owner = next((fid for fid, pids in rosters.items()
+                  if target_mfl_id in pids), None)
+
+    result = {"target": {"mfl_id": target_mfl_id, **(target or {})},
+              "owner": owner, "offers": []}
+
+    if not target or target.get("dynasty_value", 0) <= 0:
+        result["status"] = "no_value"
+        return result
+    if owner == franchise_id:
+        result["status"] = "mine"
+        return result
+    if owner is None:
+        result["status"] = "free_agent"
+        return result
+    result["status"] = "ok"
+
+    target_val = target["dynasty_value"]
+
+    # What the owner is thin at — packages that fill a need are easier to sell.
+    fv = franchise_positional_value(value_map)
+    medians = league_median_by_position(fv)
+    their_thin = {pos for pos, med in medians.items()
+                  if fv.get(owner, {}).get(pos, 0.0) < med}
+
+    # My assets with real value (exclude the target itself, just in case).
+    my_assets = [
+        {"mfl_id": pid, **value_map[pid]}
+        for pid in rosters.get(franchise_id, [])
+        if pid in value_map and value_map[pid]["dynasty_value"] > 0
+        and pid != target_mfl_id
+    ]
+    my_assets.sort(key=lambda p: p["dynasty_value"], reverse=True)
+
+    # Candidate packages: singles and 2-player combos landing inside the fair
+    # band around the target's value (a small overpay is fine — I want the guy).
+    low = target_val * (1 - LOPSIDED_THRESHOLD)
+    high = target_val * (1 + LOPSIDED_THRESHOLD)
+
+    packages: list[list[dict]] = []
+    packages.extend([a] for a in my_assets)
+    packages.extend(list(combo) for combo in combinations(my_assets, 2))
+
+    offers = []
+    for pkg in packages:
+        give_value = sum(p["dynasty_value"] for p in pkg)
+        if not (low <= give_value <= high):
+            continue
+        bigger = max(give_value, target_val)
+        gap_pct = abs(give_value - target_val) / bigger
+        fills_their = {p["position"] for p in pkg
+                       if group_of(p["position"]) in their_thin}
+        offers.append({
+            "give": pkg,
+            "give_value": give_value,
+            "net": target_val - give_value,   # + = I come out ahead on value
+            "gap_pct": gap_pct,
+            "salary_delta": target["salary"] - sum(p["salary"] for p in pkg),
+            "fills_their": fills_their,
+        })
+
+    # Rank: fairest first, prefer packages that fill their need and are cleaner
+    # (fewer players). Then pick distinct offers, capping how often any one of my
+    # players is reused so the five options actually differ.
+    offers.sort(key=lambda o: (o["gap_pct"], -bool(o["fills_their"]), len(o["give"])))
+
+    used_counts: dict[str, int] = {}
+    seen_sets: set[frozenset] = set()
+    chosen = []
+    for o in offers:
+        ids = frozenset(p["mfl_id"] for p in o["give"])
+        if ids in seen_sets:
+            continue
+        if any(used_counts.get(i, 0) >= 2 for i in ids):
+            continue
+        seen_sets.add(ids)
+        for i in ids:
+            used_counts[i] = used_counts.get(i, 0) + 1
+        chosen.append(o)
+        if len(chosen) >= max_offers:
+            break
+
+    result["offers"] = chosen
+    return result
