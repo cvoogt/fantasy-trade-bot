@@ -109,6 +109,18 @@ class FantasyBot(discord.Client):
 bot = FantasyBot()
 
 
+@bot.event
+async def on_app_command_completion(
+    interaction: discord.Interaction, command: app_commands.Command
+):
+    """Acknowledge every completed slash command with a 👍 on the reply."""
+    try:
+        msg = await interaction.original_response()
+        await msg.add_reaction("👍")
+    except discord.HTTPException:
+        pass
+
+
 # ---------- slash commands ----------
 
 @bot.tree.command(name="waivers", description="Top waiver gems + suggested drops")
