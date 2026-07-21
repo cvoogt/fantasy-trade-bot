@@ -83,6 +83,17 @@ bash /opt/fantasy-trade-bot/deploy/update.sh
 Pulls the latest code, syncs dependencies, restarts the service. (First time:
 `chmod +x deploy/update.sh` if you want to run it directly.)
 
+### Uninstalling
+
+```bash
+sudo bash /opt/fantasy-trade-bot/deploy/uninstall.sh           # remove service + cron, keep files
+sudo bash /opt/fantasy-trade-bot/deploy/uninstall.sh --purge   # also delete /opt/fantasy-trade-bot (.env + DB)
+```
+
+Stops and disables the systemd service, removes the unit file, and drops the
+daily value-refresh cron. `--purge` additionally deletes the install directory
+(including `.env` and `trade_bot.db`) after you confirm the path.
+
 ### Optional: keep the daily value refresh cron
 
 ```cron
