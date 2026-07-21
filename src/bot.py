@@ -711,6 +711,54 @@ async def projections_cmd(interaction: discord.Interaction, scope: str = "season
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="freeagent", description="Top free agents: projected points + salary")
+@app_commands.describe(
+    position="Filter to a position (QB/RB/WR/TE/PK/DT/DE/LB/CB/S)",
+    rookies="Y = rookies only, n = exclude rookies, omit = both",
+)
+@app_commands.choices(rookies=[
+    app_commands.Choice(name="Y", value="y"),
+    app_commands.Choice(name="n", value="n"),
+])
+async def freeagent_cmd(interaction: discord.Interaction, position: str | None = None,
+                        rookies: str | None = None):
+    await interaction.response.defer(thinking=True)
+    from src.freeagents import top_free_agents
+    from src.sleeper_api import get_nfl_state
+
+    value_map = await asyncio.to_thread(_cache.get)
+    state = await asyncio.to_thread(get_nfl_state)
+    season = int(state["season"])
+    wk = int(state.get("week") or 0)
+    week = wk if state.get("season_type") == "regular" and wk >= 1 else None
+
+    rookies_filter = {"y": True, "n": False}.get(rookies)
+
+    rows = await asyncio.to_thread(
+        top_free_agents, position, rookies_filter, season, week, 15, value_map,
+    )
+    if not rows:
+        await interaction.followup.send("No free agents matched.")
+        return
+
+    label = (position.upper() if position else "All positions")
+    if rookies_filter is True:
+        label += " — rookies only"
+    elif rookies_filter is False:
+        label += " — no rookies"
+
+    lines = []
+    for i, r in enumerate(rows, 1):
+        wk_str = f" | Week {week}: {r['week_pts']:.1f} pts" if r["week_pts"] is not None else ""
+        lines.append(
+            f"`{i:>2}.` **{r['name']}** ({r['position']}, {r['team']}) — "
+            f"Season: {r['season_pts']:.1f} pts{wk_str} | Salary: ${r['salary']:,.0f}"
+        )
+    embed = discord.Embed(title=f"Free Agents — {label}",
+                          description="\n".join(lines), color=EMBED_COLOR)
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="update", description="Pull the latest bot code and restart")
 async def update_cmd(interaction: discord.Interaction):
     if DISCORD_OWNER_ID and interaction.user.id != DISCORD_OWNER_ID:
