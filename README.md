@@ -11,12 +11,13 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 |---|---|
 | `/trade give: get:` | Score a trade. Accepts player names, MFL ids, or picks (`2026 1st`, `2026 pick 1.01`). Verdict from your perspective. |
 | `/waivers` | Top 5 waiver gems by value + suggested drop for each. |
+| `/freeagent [position] [rookies]` | Top available free agents ranked by season projection, with next-week projection and salary. Optional position filter; `rookies` = `Y` (rookies only) / `n` (exclude rookies) / omit (both). |
 | `/lineup [week]` | Optimal starting lineup from weekly projections (IDP-aware), plus start/sit changes vs your submitted lineup. |
 | `/player name:` | Dynasty value, salary, value-per-dollar, VOR for any player (fuzzy name ok). |
 | `/roster` | Roster health: value by position vs league median + league rank. |
 | `/scan` | Scan the league for new trades and score them. |
 | `/trades [days]` | League trades from the last X days — two-column what-each-team-received layout with verdicts. |
-| `/tradefinder` | Mutually beneficial 1-for-1 pitches: your surplus for their surplus, both filling below-median positions. |
+| `/tradefinder [player]` | No arg: mutually beneficial 1-for-1 pitches — your surplus for their surplus, both filling below-median positions. With `player`: name a player you want and get up to 5 distinct packages from your roster (singles + 2-player combos) inside the fair value band, flagging which fill the owner's thin spots. |
 | `/matchup [week]` | Head-to-head: opponent, live score, players yet to play. |
 | `/salary [team]` | Salary-cap analysis: payroll vs cap, spend by group, best/worst contracts. Defaults to you. |
 | `/cuts [team]` | Recommended cuts: cap relief on below-replacement contracts, lineup-safe. |
@@ -26,6 +27,9 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 
 ## Automatic (no command needed)
 
+- **Command acknowledgement** — the bot reacts 👍 on its own reply once a slash
+  command finishes, so you get a quick visual confirmation it ran (needs the
+  *Add Reactions* permission in the channel).
 - **Live scoring alerts** — during game windows the bot polls every 60s and posts
   when one of your starters logs a passing/rushing/receiving/ST TD, an
   interception (`idp_int`), a fumble recovery (`idp_fum_rec`), or a defensive TD.
@@ -113,6 +117,11 @@ daily value-refresh cron. `--purge` additionally deletes the install directory
 | `DISCORD_WEBHOOK_URL` | — | Legacy webhook path (`python -m src.cli report`) |
 | `LOPSIDED_THRESHOLD` | `0.15` | Value gap that triggers a FLEECE flag |
 | `HOMARR_PORT` | `5055` | Port for the Flask status tile |
+
+Values are read from the repo-root `.env` (the one next to the code, e.g.
+`/opt/fantasy-trade-bot/.env`) and override any variable already set in the
+environment. The bot reads `.env` only at startup, so restart the service
+(`systemctl restart fantasy-bot`) after editing it.
 
 ## CLI (still available without the bot)
 
