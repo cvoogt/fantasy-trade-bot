@@ -15,21 +15,27 @@ SLOT_ORDER = ["Thu Night", "Fri", "Sat", "Sun AM", "Sun Early",
               "Sun Late", "Sun Night", "Mon Night", "Other"]
 
 
-def _et(ts: int) -> datetime:
-    """Kickoff unix seconds -> US Eastern datetime (falls back to UTC-4)."""
+# NFL game windows are defined in US Eastern (1pm/4pm/SNF), so slotting is done
+# in ET; kickoffs are *displayed* in US Central per league preference.
+_SLOT_TZ = ("America/New_York", 4)
+_DISPLAY_TZ = ("America/Chicago", 5)
+
+
+def _in_zone(ts: int, zone: tuple[str, int]) -> datetime:
+    """Kickoff unix seconds -> datetime in `zone` (name, DST-season UTC offset)."""
     dt = datetime.fromtimestamp(ts, tz=timezone.utc)
     try:
         from zoneinfo import ZoneInfo
-        return dt.astimezone(ZoneInfo("America/New_York"))
-    except Exception:  # tz database unavailable — NFL season is ~UTC-4
-        return dt - timedelta(hours=4)
+        return dt.astimezone(ZoneInfo(zone[0]))
+    except Exception:  # tz database unavailable — fall back to a fixed offset
+        return dt - timedelta(hours=zone[1])
 
 
 def slot_for(ts: int) -> str:
-    """Label the game slot a kickoff timestamp falls in."""
+    """Label the game slot a kickoff timestamp falls in (windows anchored in ET)."""
     if not ts:
         return "Other"
-    et = _et(ts)
+    et = _in_zone(ts, _SLOT_TZ)
     wd = et.weekday()  # Mon=0 .. Sun=6
     hm = et.hour + et.minute / 60.0
     if wd == 3:
@@ -52,13 +58,13 @@ def slot_for(ts: int) -> str:
 
 
 def fmt_kickoff(ts: int) -> str:
-    """Kickoff timestamp -> 'Sun 1:00 PM ET' (or 'TBD' when unknown)."""
+    """Kickoff timestamp -> 'Sun 12:00 PM CT' (or 'TBD' when unknown)."""
     if not ts:
         return "TBD"
-    et = _et(ts)
-    hour12 = et.hour % 12 or 12
-    ampm = "AM" if et.hour < 12 else "PM"
-    return f"{et:%a} {hour12}:{et.minute:02d} {ampm} ET"
+    ct = _in_zone(ts, _DISPLAY_TZ)
+    hour12 = ct.hour % 12 or 12
+    ampm = "AM" if ct.hour < 12 else "PM"
+    return f"{ct:%a} {hour12}:{ct.minute:02d} {ampm} CT"
 
 
 def team_slots(week: int | None = None) -> dict[str, dict]:

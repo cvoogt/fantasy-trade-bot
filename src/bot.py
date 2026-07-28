@@ -93,14 +93,18 @@ class FantasyBot(discord.Client):
         draft_watch.start()
         injury_watch.start()
         projections_refresh.start()
+        scheduled_posts.start()
 
     async def alert_channel(self) -> discord.abc.Messageable | None:
-        if not DISCORD_ALERT_CHANNEL_ID:
+        return await self.channel(DISCORD_ALERT_CHANNEL_ID)
+
+    async def channel(self, channel_id: int) -> discord.abc.Messageable | None:
+        if not channel_id:
             return None
-        ch = self.get_channel(DISCORD_ALERT_CHANNEL_ID)
+        ch = self.get_channel(channel_id)
         if ch is None:
             try:
-                ch = await self.fetch_channel(DISCORD_ALERT_CHANNEL_ID)
+                ch = await self.fetch_channel(channel_id)
             except discord.HTTPException:
                 return None
         return ch
@@ -121,42 +125,37 @@ async def on_app_command_completion(
         pass
 
 
-# ---------- slash commands ----------
+# ---------- embed builders (shared by slash commands + the scheduler) ----------
+# Each is a blocking function returning a discord.Embed (or a plain string when
+# there's nothing to show). Slash commands run them via asyncio.to_thread; the
+# weekly scheduler calls the same builders so scheduled posts match /command.
 
-@bot.tree.command(name="waivers", description="Top waiver gems + suggested drops")
-async def waivers_cmd(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True)
-    value_map = await asyncio.to_thread(_cache.get)
-    report = await asyncio.to_thread(waiver_gems, 5, MFL_FRANCHISE_ID, value_map)
-
+def build_waivers_embed() -> discord.Embed:
+    from src.roster import group_of
+    value_map = _cache.get()
+    report = waiver_gems(5, MFL_FRANCHISE_ID, value_map)
     embed = discord.Embed(title="Top Waiver Gems", color=EMBED_COLOR)
     thin = report["thin_positions"]
     if thin:
         embed.description = f"Thin positions: {', '.join(sorted(thin))}"
     for i, pair in enumerate(report["pairs"], 1):
         gem, drop = pair["gem"], pair["drop"]
-        from src.roster import group_of
         tag = " • fills thin spot" if group_of(gem["position"]) in thin else ""
-        val = (f"ADD **{gem['name']}** ({gem['position']}, val {gem['dynasty_value']:.0f}){tag}")
+        val = f"ADD **{gem['name']}** ({gem['position']}, val {gem['dynasty_value']:.0f}){tag}"
         if drop:
             val += f"\nDROP {drop['name']} ({drop['position']}, val {drop['dynasty_value']:.0f})"
         embed.add_field(name=f"#{i}", value=val, inline=False)
-    await interaction.followup.send(embed=embed)
+    return embed
 
 
-@bot.tree.command(name="roster", description="My roster health vs league median")
-async def roster_cmd(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True)
-    value_map = await asyncio.to_thread(_cache.get)
-
+def build_roster_embed() -> discord.Embed:
     from src.roster import franchise_positional_value, league_median_by_position
-
-    fv = await asyncio.to_thread(franchise_positional_value, value_map)
+    value_map = _cache.get()
+    fv = franchise_positional_value(value_map)
     medians = league_median_by_position(fv)
     mine = fv.get(MFL_FRANCHISE_ID, {})
     totals = {fid: sum(v.values()) for fid, v in fv.items()}
     rank = sorted(totals, key=lambda f: totals[f], reverse=True).index(MFL_FRANCHISE_ID) + 1
-
     embed = discord.Embed(
         title="Roster Health",
         description=f"League rank by total dynasty value: **#{rank}** of {len(totals)}",
@@ -166,11 +165,180 @@ async def roster_cmd(interaction: discord.Interaction):
         mv, med = mine.get(pos, 0.0), medians[pos]
         delta = mv - med
         sign = "+" if delta >= 0 else "−"
-        embed.add_field(
-            name=pos,
-            value=f"{mv:,.0f}\n({sign}{abs(delta):,.0f} vs median)",
-            inline=True,
+        embed.add_field(name=pos, value=f"{mv:,.0f}\n({sign}{abs(delta):,.0f} vs median)",
+                        inline=True)
+    return embed
+
+
+def build_lineup_embed(week: int | None = None) -> discord.Embed:
+    from src.lineup import lineup_advice
+    adv = lineup_advice(MFL_FRANCHISE_ID, None, week)
+    embed = discord.Embed(title=f"Optimal Lineup — {adv['season']} week {adv['week']}",
+                          color=EMBED_COLOR)
+    by_slot: dict[str, list] = {}
+    for p in adv["optimal"]:
+        by_slot.setdefault(p["slot"], []).append(p)
+    for slot, ps in by_slot.items():
+        embed.add_field(name=slot,
+                        value="\n".join(f"{p['name']} ({p['proj']:.1f})" for p in ps),
+                        inline=True)
+    if adv["start"] or adv["sit"]:
+        changes = [f"START {p['name']} ({p['proj']:.1f})" for p in adv["start"]]
+        changes += [f"SIT {p['name']} ({p['proj']:.1f})" for p in adv["sit"]]
+        embed.add_field(name="Changes vs your current lineup",
+                        value="\n".join(changes), inline=False)
+    elif adv["current"]:
+        embed.add_field(name="Changes vs your current lineup",
+                        value="None — already optimal.", inline=False)
+    else:
+        embed.set_footer(text="No submitted lineup found to compare (offseason or lineup not set).")
+    return embed
+
+
+def build_projections_embed(scope: str = "season", position: str | None = None,
+                            week: int | None = None) -> discord.Embed | str:
+    from src.projections import get_projected_points
+    from src.sleeper_api import get_nfl_state
+    from src.mfl_api import get_players, get_rosters
+
+    state = get_nfl_state()
+    season = int(state["season"])
+    wk = None
+    if scope == "week":
+        wk = week or max(int(state.get("week") or 1), 1)
+
+    proj = get_projected_points(season, wk)
+    if not proj:
+        return "No projections available for that scope yet."
+
+    players = {p["id"]: p for p in get_players()}
+    mine = set()
+    for fr in get_rosters():
+        if fr.get("id") == MFL_FRANCHISE_ID:
+            pl = fr.get("player", [])
+            if isinstance(pl, dict):
+                pl = [pl]
+            mine = {p.get("id") for p in pl}
+
+    rows = []
+    for mfl_id, p in proj.items():
+        meta = players.get(mfl_id)
+        if not meta:
+            continue
+        pos = meta.get("position", "?")
+        if position and pos.upper() != position.upper():
+            continue
+        rows.append((p["points"], meta.get("name", mfl_id), pos,
+                     mfl_id in mine, p["sources"]))
+    rows.sort(reverse=True)
+
+    label = f"week {wk}" if wk else "season"
+    title = f"Projections — {label}" + (f" — {position.upper()}" if position else "")
+    lines = []
+    for i, (pts, name, pos, is_mine, sources) in enumerate(rows[:15], 1):
+        star = " ⭐" if is_mine else ""
+        src = "²" if sources > 1 else ""
+        lines.append(f"`{i:>2}.` **{name}** ({pos}) — {pts:.1f}{src}{star}")
+    embed = discord.Embed(title=title, description="\n".join(lines) or "—",
+                          color=EMBED_COLOR)
+    embed.set_footer(text="League scoring · ² = multi-source blend · ⭐ = your roster")
+    return embed
+
+
+def build_freeagent_embed(position: str | None = None,
+                          rookies: bool | None = None) -> discord.Embed | str:
+    from src.freeagents import top_free_agents
+    from src.sleeper_api import get_nfl_state
+
+    value_map = _cache.get()
+    state = get_nfl_state()
+    season = int(state["season"])
+    wk = int(state.get("week") or 0)
+    week = wk if state.get("season_type") == "regular" and wk >= 1 else None
+
+    rows = top_free_agents(position, rookies, season, week, 15, value_map)
+    if not rows:
+        return "No free agents matched."
+
+    label = position.upper() if position else "All positions"
+    if rookies is True:
+        label += " — rookies only"
+    elif rookies is False:
+        label += " — no rookies"
+
+    lines = []
+    for i, r in enumerate(rows, 1):
+        wk_str = f" | Week {week}: {r['week_pts']:.1f} pts" if r["week_pts"] is not None else ""
+        lines.append(
+            f"`{i:>2}.` **{r['name']}** ({r['position']}, {r['team']}) — "
+            f"Season: {r['season_pts']:.1f} pts{wk_str} | Salary: ${r['salary']:,.0f}"
         )
+    return discord.Embed(title=f"Free Agents — {label}",
+                         description="\n".join(lines), color=EMBED_COLOR)
+
+
+def build_gametime_embed() -> discord.Embed | str:
+    from src.gametime import starters_by_slot
+    from src.sleeper_api import get_nfl_state
+
+    state = get_nfl_state()
+    wk = int(state.get("week") or 0)
+    in_season = state.get("season_type") == "regular" and wk >= 1
+    week = wk if in_season else 1
+
+    data = starters_by_slot(MFL_FRANCHISE_ID, week)
+    slots, bye = data["slots"], data["bye"]
+    if not slots and not bye:
+        return "No starters or NFL schedule found for this week yet."
+
+    total = sum(len(s["players"]) for s in slots) + len(bye)
+    chart_rows = [(s["slot"], len(s["players"])) for s in slots]
+    if bye:
+        chart_rows.append(("BYE", len(bye)))
+    max_n = max((n for _, n in chart_rows), default=1) or 1
+    chart = "\n".join(f"`{lbl:<9}` {_bar(n, max_n)} `{n:>2}`" for lbl, n in chart_rows)
+
+    embed = discord.Embed(title=f"Game Time — Week {week} · {total} starters",
+                          description=chart, color=EMBED_COLOR)
+    for s in slots:
+        roster = ", ".join(f"{p['name']} ({p['position']})" for p in s["players"])
+        embed.add_field(name=f"{s['slot']} — {len(s['players'])}",
+                        value=roster or "—", inline=False)
+    if bye:
+        roster = ", ".join(f"{p['name']} ({p['position']})" for p in bye)
+        embed.add_field(name=f"BYE — {len(bye)}", value=roster, inline=False)
+
+    foot = "Starting lineup grouped by NFL game slot · kickoffs in CT"
+    if not in_season:
+        foot = "Off-season preview (upcoming Week 1) · " + foot
+    embed.set_footer(text=foot)
+    return embed
+
+
+# Commands that can be scheduled to auto-post. name -> zero-arg builder.
+SCHEDULABLE = {
+    "gametime": build_gametime_embed,
+    "waivers": build_waivers_embed,
+    "roster": build_roster_embed,
+    "lineup": build_lineup_embed,
+    "projections": build_projections_embed,
+    "freeagent": build_freeagent_embed,
+}
+
+
+# ---------- slash commands ----------
+
+@bot.tree.command(name="waivers", description="Top waiver gems + suggested drops")
+async def waivers_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    embed = await asyncio.to_thread(build_waivers_embed)
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="roster", description="My roster health vs league median")
+async def roster_cmd(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    embed = await asyncio.to_thread(build_roster_embed)
     await interaction.followup.send(embed=embed)
 
 
@@ -311,33 +479,7 @@ async def trade_cmd(interaction: discord.Interaction, give: str, get: str):
 @app_commands.describe(week="NFL week (defaults to current)")
 async def lineup_cmd(interaction: discord.Interaction, week: int | None = None):
     await interaction.response.defer(thinking=True)
-    from src.lineup import lineup_advice
-
-    adv = await asyncio.to_thread(lineup_advice, MFL_FRANCHISE_ID, None, week)
-
-    embed = discord.Embed(
-        title=f"Optimal Lineup — {adv['season']} week {adv['week']}",
-        color=EMBED_COLOR,
-    )
-    by_slot: dict[str, list] = {}
-    for p in adv["optimal"]:
-        by_slot.setdefault(p["slot"], []).append(p)
-    for slot, ps in by_slot.items():
-        embed.add_field(
-            name=slot,
-            value="\n".join(f"{p['name']} ({p['proj']:.1f})" for p in ps),
-            inline=True,
-        )
-    if adv["start"] or adv["sit"]:
-        changes = [f"START {p['name']} ({p['proj']:.1f})" for p in adv["start"]]
-        changes += [f"SIT {p['name']} ({p['proj']:.1f})" for p in adv["sit"]]
-        embed.add_field(name="Changes vs your current lineup",
-                        value="\n".join(changes), inline=False)
-    elif adv["current"]:
-        embed.add_field(name="Changes vs your current lineup",
-                        value="None — already optimal.", inline=False)
-    else:
-        embed.set_footer(text="No submitted lineup found to compare (offseason or lineup not set).")
+    embed = await asyncio.to_thread(build_lineup_embed, week)
     await interaction.followup.send(embed=embed)
 
 
@@ -737,57 +879,11 @@ async def draft_cmd(interaction: discord.Interaction):
 async def projections_cmd(interaction: discord.Interaction, scope: str = "season",
                           position: str | None = None, week: int | None = None):
     await interaction.response.defer(thinking=True)
-    from src.projections import get_projected_points
-    from src.sleeper_api import get_nfl_state
-    from src.mfl_api import get_players, get_rosters
-
-    state = await asyncio.to_thread(get_nfl_state)
-    season = int(state["season"])
-    wk = None
-    if scope == "week":
-        wk = week or max(int(state.get("week") or 1), 1)
-
-    proj = await asyncio.to_thread(get_projected_points, season, wk)
-    if not proj:
-        await interaction.followup.send("No projections available for that scope yet.")
-        return
-
-    def _meta():
-        players = {p["id"]: p for p in get_players()}
-        mine = set()
-        for fr in get_rosters():
-            if fr.get("id") == MFL_FRANCHISE_ID:
-                pl = fr.get("player", [])
-                if isinstance(pl, dict):
-                    pl = [pl]
-                mine = {p.get("id") for p in pl}
-        return players, mine
-
-    players, mine = await asyncio.to_thread(_meta)
-
-    rows = []
-    for mfl_id, p in proj.items():
-        meta = players.get(mfl_id)
-        if not meta:
-            continue
-        pos = meta.get("position", "?")
-        if position and pos.upper() != position.upper():
-            continue
-        rows.append((p["points"], meta.get("name", mfl_id), pos,
-                     mfl_id in mine, p["sources"]))
-    rows.sort(reverse=True)
-
-    label = f"week {wk}" if wk else "season"
-    title = f"Projections — {label}" + (f" — {position.upper()}" if position else "")
-    lines = []
-    for i, (pts, name, pos, is_mine, sources) in enumerate(rows[:15], 1):
-        star = " ⭐" if is_mine else ""
-        src = "²" if sources > 1 else ""
-        lines.append(f"`{i:>2}.` **{name}** ({pos}) — {pts:.1f}{src}{star}")
-    embed = discord.Embed(title=title, description="\n".join(lines) or "—",
-                          color=EMBED_COLOR)
-    embed.set_footer(text="League scoring · ² = multi-source blend · ⭐ = your roster")
-    await interaction.followup.send(embed=embed)
+    result = await asyncio.to_thread(build_projections_embed, scope, position, week)
+    if isinstance(result, discord.Embed):
+        await interaction.followup.send(embed=result)
+    else:
+        await interaction.followup.send(result)
 
 
 @bot.tree.command(name="freeagent", description="Top free agents: projected points + salary")
@@ -802,40 +898,12 @@ async def projections_cmd(interaction: discord.Interaction, scope: str = "season
 async def freeagent_cmd(interaction: discord.Interaction, position: str | None = None,
                         rookies: str | None = None):
     await interaction.response.defer(thinking=True)
-    from src.freeagents import top_free_agents
-    from src.sleeper_api import get_nfl_state
-
-    value_map = await asyncio.to_thread(_cache.get)
-    state = await asyncio.to_thread(get_nfl_state)
-    season = int(state["season"])
-    wk = int(state.get("week") or 0)
-    week = wk if state.get("season_type") == "regular" and wk >= 1 else None
-
     rookies_filter = {"y": True, "n": False}.get(rookies)
-
-    rows = await asyncio.to_thread(
-        top_free_agents, position, rookies_filter, season, week, 15, value_map,
-    )
-    if not rows:
-        await interaction.followup.send("No free agents matched.")
-        return
-
-    label = (position.upper() if position else "All positions")
-    if rookies_filter is True:
-        label += " — rookies only"
-    elif rookies_filter is False:
-        label += " — no rookies"
-
-    lines = []
-    for i, r in enumerate(rows, 1):
-        wk_str = f" | Week {week}: {r['week_pts']:.1f} pts" if r["week_pts"] is not None else ""
-        lines.append(
-            f"`{i:>2}.` **{r['name']}** ({r['position']}, {r['team']}) — "
-            f"Season: {r['season_pts']:.1f} pts{wk_str} | Salary: ${r['salary']:,.0f}"
-        )
-    embed = discord.Embed(title=f"Free Agents — {label}",
-                          description="\n".join(lines), color=EMBED_COLOR)
-    await interaction.followup.send(embed=embed)
+    result = await asyncio.to_thread(build_freeagent_embed, position, rookies_filter)
+    if isinstance(result, discord.Embed):
+        await interaction.followup.send(embed=result)
+    else:
+        await interaction.followup.send(result)
 
 
 def _bar(n: int, max_n: int, width: int = 14) -> str:
@@ -851,17 +919,17 @@ def _bar(n: int, max_n: int, width: int = 14) -> str:
 @app_commands.describe(player="Optional: look up just this player's kickoff this week")
 async def gametime_cmd(interaction: discord.Interaction, player: str | None = None):
     await interaction.response.defer(thinking=True)
-    from src.gametime import starters_by_slot, player_game_time, fmt_kickoff
-    from src.sleeper_api import get_nfl_state
-
-    state = await asyncio.to_thread(get_nfl_state)
-    wk = int(state.get("week") or 0)
-    in_season = state.get("season_type") == "regular" and wk >= 1
-    # Off-season: there's no current-week schedule, so preview the upcoming
-    # Week 1 rather than showing every starter on a BYE.
-    week = wk if in_season else 1
 
     if player:
+        from src.gametime import player_game_time, fmt_kickoff
+        from src.sleeper_api import get_nfl_state
+
+        state = await asyncio.to_thread(get_nfl_state)
+        wk = int(state.get("week") or 0)
+        in_season = state.get("season_type") == "regular" and wk >= 1
+        # Off-season: preview the upcoming Week 1 rather than reporting a BYE.
+        week = wk if in_season else 1
+
         cands = await asyncio.to_thread(resolve_player, player, 1)
         if not cands:
             await interaction.followup.send(f"Couldn't find a player matching **{player}**.")
@@ -891,39 +959,71 @@ async def gametime_cmd(interaction: discord.Interaction, player: str | None = No
         await interaction.followup.send(embed=embed)
         return
 
-    data = await asyncio.to_thread(starters_by_slot, MFL_FRANCHISE_ID, week)
-    slots, bye = data["slots"], data["bye"]
-    if not slots and not bye:
-        await interaction.followup.send("No starters or NFL schedule found for this week yet.")
+    result = await asyncio.to_thread(build_gametime_embed)
+    if isinstance(result, discord.Embed):
+        await interaction.followup.send(embed=result)
+    else:
+        await interaction.followup.send(result)
+
+
+@bot.tree.command(name="schedule",
+                  description="Auto-post a command in this channel every week on a day + time")
+@app_commands.describe(
+    command="Which command to post",
+    day="Day of week (e.g. Sunday, Mon, thursday)",
+    time="Time of day, CT (e.g. 11AM, 7:30PM, 13:00)",
+)
+@app_commands.choices(command=[
+    app_commands.Choice(name=name, value=name) for name in sorted(SCHEDULABLE)
+])
+async def schedule_cmd(interaction: discord.Interaction, command: str, day: str, time: str):
+    from src import scheduler as sched
+
+    if command not in SCHEDULABLE:
+        await interaction.response.send_message(
+            f"Can't schedule `/{command}`. Options: {', '.join(sorted(SCHEDULABLE))}.",
+            ephemeral=True)
+        return
+    try:
+        dow = sched.parse_day(day)
+        hour, minute = sched.parse_time(time)
+    except ValueError as e:
+        await interaction.response.send_message(f"⚠️ {e}", ephemeral=True)
         return
 
-    total = sum(len(s["players"]) for s in slots) + len(bye)
+    job_id = await asyncio.to_thread(
+        sched.add_job, command, dow, hour, minute,
+        interaction.channel_id, interaction.user.id)
+    await interaction.response.send_message(
+        f"✅ Scheduled **/{command}** every **{sched.DAY_NAMES[dow]}** at "
+        f"**{sched.fmt_time(hour, minute)} CT** in this channel. "
+        f"Manage with `/schedules` (id `{job_id}`)."
+    )
 
-    # Bar chart: starter count per slot (and day), busiest slot sets the scale.
-    chart_rows = [(s["slot"], len(s["players"])) for s in slots]
-    if bye:
-        chart_rows.append(("BYE", len(bye)))
-    max_n = max((n for _, n in chart_rows), default=1) or 1
-    chart = "\n".join(f"`{lbl:<9}` {_bar(n, max_n)} `{n:>2}`"
-                      for lbl, n in chart_rows)
 
-    embed = discord.Embed(title=f"Game Time — Week {week} · {total} starters",
-                          description=chart, color=EMBED_COLOR)
+@bot.tree.command(name="schedules",
+                  description="List scheduled auto-posts, or remove one by id")
+@app_commands.describe(remove="Optional: id of a schedule to remove")
+async def schedules_cmd(interaction: discord.Interaction, remove: int | None = None):
+    from src import scheduler as sched
 
-    # Below the chart: the starters in each slot.
-    for s in slots:
-        roster = ", ".join(f"{p['name']} ({p['position']})" for p in s["players"])
-        embed.add_field(name=f"{s['slot']} — {len(s['players'])}",
-                        value=roster or "—", inline=False)
-    if bye:
-        roster = ", ".join(f"{p['name']} ({p['position']})" for p in bye)
-        embed.add_field(name=f"BYE — {len(bye)}", value=roster, inline=False)
+    if remove is not None:
+        ok = await asyncio.to_thread(sched.remove_job, remove)
+        await interaction.response.send_message(
+            f"🗑️ Removed schedule `{remove}`." if ok else f"No schedule with id `{remove}`.",
+            ephemeral=not ok)
+        return
 
-    foot = "Starting lineup grouped by NFL game slot · kickoffs in ET"
-    if not in_season:
-        foot = "Off-season preview (upcoming Week 1) · " + foot
-    embed.set_footer(text=foot)
-    await interaction.followup.send(embed=embed)
+    jobs = await asyncio.to_thread(sched.list_jobs)
+    if not jobs:
+        await interaction.response.send_message(
+            "No scheduled posts yet. Add one with `/schedule`.", ephemeral=True)
+        return
+    lines = [f"`{j['id']}` — {sched.describe(j)} → <#{j['channel_id']}>" for j in jobs]
+    embed = discord.Embed(title="Scheduled posts", description="\n".join(lines),
+                          color=EMBED_COLOR)
+    embed.set_footer(text="Remove one with /schedules remove:<id>")
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="update", description="Pull the latest bot code and restart")
@@ -1008,6 +1108,44 @@ async def live_event_poll():
 
 @live_event_poll.before_loop
 async def _wait_ready_live():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(seconds=60)
+async def scheduled_posts():
+    """Fire any weekly /schedule job whose day + time (CT) is now."""
+    from src import scheduler as sched
+
+    try:
+        jobs = await asyncio.to_thread(sched.due_jobs)
+    except Exception:
+        log.exception("scheduled_posts: due_jobs failed")
+        return
+
+    for job in jobs:
+        # Mark first so a slow/failed builder can't double-post next tick.
+        await asyncio.to_thread(sched.mark_run, job["id"])
+        builder = SCHEDULABLE.get(job["command"])
+        if builder is None:
+            log.warning("scheduled job %s: unknown command %r", job["id"], job["command"])
+            continue
+        try:
+            ch = await bot.channel(job["channel_id"])
+            if ch is None:
+                log.warning("scheduled job %s: channel %s unavailable",
+                            job["id"], job["channel_id"])
+                continue
+            result = await asyncio.to_thread(builder)
+            if isinstance(result, discord.Embed):
+                await ch.send(embed=result)
+            elif result:
+                await ch.send(str(result))
+        except Exception:
+            log.exception("scheduled_posts: job %s (/%s) failed", job["id"], job["command"])
+
+
+@scheduled_posts.before_loop
+async def _wait_ready_sched():
     await bot.wait_until_ready()
 
 

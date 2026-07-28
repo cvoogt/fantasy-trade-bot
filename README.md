@@ -18,12 +18,14 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 | `/scan` | Scan the league for new trades and score them. |
 | `/trades [days]` | League trades from the last X days — two-column what-each-team-received layout with verdicts. |
 | `/tradefinder [player]` | No arg: mutually beneficial 1-for-1 pitches — your surplus for their surplus, both filling below-median positions. With `player`: name a player you want and get up to 5 distinct packages from your roster (singles + 2-player combos) inside the fair value band, flagging which fill the owner's thin spots. |
-| `/gametime [player]` | No arg: a heatmap of your starters grouped by NFL game slot this week (Thu night → Sunday windows → Mon night), with a BYE bucket. With `player`: when that player kicks off this week (slot, ET time, opponent). |
+| `/gametime [player]` | No arg: a bar chart of how many of your starters play in each NFL game slot this week (Thu night → Sunday windows → Mon night), then the starters listed per slot, plus a BYE bucket. With `player`: when that player kicks off this week (slot, CT time, opponent). Kickoffs shown in Central. |
 | `/matchup [week]` | Head-to-head: opponent, live score, players yet to play. |
 | `/salary [team]` | Salary-cap analysis: payroll vs cap, spend by group, best/worst contracts. Defaults to you. |
 | `/cuts [team]` | Recommended cuts: cap relief on below-replacement contracts, lineup-safe. |
 | `/draft` | Rookie draft board: who's on the clock, best available, your remaining picks. |
 | `/projections [scope] [position] [week]` | Top projected players under league scoring — season or weekly, all positions incl. IDP, multi-source blend. |
+| `/schedule command: day: time:` | Auto-post a command in the current channel every week at a day + time (CT). Schedulable: `gametime`, `waivers`, `roster`, `lineup`, `projections`, `freeagent`. E.g. `/schedule gametime Sunday 11AM`. |
+| `/schedules [remove]` | List your scheduled auto-posts; pass `remove:<id>` to cancel one. |
 | `/update` | Pull the latest bot code, sync deps, restart in place (owner-only if `DISCORD_OWNER_ID` set). |
 
 ## Automatic (no command needed)
@@ -47,6 +49,25 @@ starters scores a TD, picks off a pass, or recovers a fumble.
   newly hitting the FA pool gets posted within the hour.
 - **Weekly reports** — Sunday 10pm and Tuesday 8pm (server time): roster health,
   waiver gems, lopsided trades. Also refreshes the Homarr tile.
+
+## Scheduled posts
+
+`/schedule` lets you pin any of a handful of commands to auto-post on a weekly
+day + time (interpreted in **US Central**). The bot checks once a minute and
+posts the same output you'd get from running the command yourself, in the
+channel where you set it.
+
+```text
+/schedule command:gametime day:Sunday time:11AM     # every Sun 11:00 AM CT
+/schedule command:waivers  day:Tue    time:7:30PM
+/schedules                                           # list them
+/schedules remove:3                                  # cancel schedule #3
+```
+
+Schedulable commands: `gametime`, `waivers`, `roster`, `lineup`, `projections`,
+`freeagent`. Times accept `11AM`, `7:30PM`, or 24-hour `13:00`; days accept full
+names or abbreviations (`Sunday`, `Sun`). Schedules persist in SQLite, so they
+survive restarts.
 
 ## Setup
 

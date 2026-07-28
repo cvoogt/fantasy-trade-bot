@@ -111,6 +111,13 @@ def test_player_game_time_ok_bye_and_no_team():
     assert no_team["status"] == "no_team"
 
 
-def test_fmt_kickoff():
-    assert gametime.fmt_kickoff(SUN_EARLY) == "Sun 1:00 PM ET"
+def test_fmt_kickoff_is_central():
+    # 1:00 PM ET kickoff displays as 12:00 PM CT.
+    assert gametime.fmt_kickoff(SUN_EARLY) == "Sun 12:00 PM CT"
     assert gametime.fmt_kickoff(0) == "TBD"
+
+
+def test_slots_stay_eastern_anchored():
+    # Display is CT, but a 1pm ET game must still classify as the early Sunday
+    # window (not "Sun AM" off a noon-CT read).
+    assert gametime.slot_for(SUN_EARLY) == "Sun Early"

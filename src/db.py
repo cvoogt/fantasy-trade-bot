@@ -99,6 +99,18 @@ def init_db():
             updated_at TEXT,
             PRIMARY KEY (season, week, sleeper_id, stat)
         );
+
+        CREATE TABLE IF NOT EXISTS scheduled_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            command TEXT,
+            dow INTEGER,
+            hour INTEGER,
+            minute INTEGER,
+            channel_id INTEGER,
+            created_by INTEGER,
+            created_at TEXT,
+            last_run TEXT
+        );
     """)
     _migrate(conn)
     conn.commit()
