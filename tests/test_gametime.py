@@ -69,11 +69,14 @@ def _rosters():
     return [{"id": "0002", "player": [{"id": str(i)} for i in range(1, 6)]}]
 
 
+def _advice(ids):
+    return {"current": set(), "optimal": [{"mfl_id": i} for i in ids]}
+
+
 def test_starters_by_slot_groups_and_orders():
     with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=_schedule()), \
          patch.object(gametime.mfl_api, "get_players", return_value=_players()), \
-         patch.object(gametime.mfl_api, "get_live_scoring", return_value={}), \
-         patch.object(gametime.mfl_api, "get_rosters", return_value=_rosters()):
+         patch("src.lineup.lineup_advice", return_value=_advice(["1", "2", "3", "4", "5"])):
         data = gametime.starters_by_slot("0002", 1)
 
     slot_names = [s["slot"] for s in data["slots"]]
@@ -85,20 +88,16 @@ def test_starters_by_slot_groups_and_orders():
     assert early["players"][0]["opp"] == "NO"
 
 
-def test_starters_by_slot_prefers_live_scoring_starters():
-    live = {"franchise": [{"id": "0002", "players": {"player": [
-        {"id": "1", "status": "starter"},
-        {"id": "5", "status": "nonstarter"},
-    ]}}]}
+def test_starters_by_slot_uses_only_the_lineup():
+    # Only ids 1 and 5 are in the lineup -> the rest of the roster is ignored.
     with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=_schedule()), \
          patch.object(gametime.mfl_api, "get_players", return_value=_players()), \
-         patch.object(gametime.mfl_api, "get_live_scoring", return_value=live), \
-         patch.object(gametime.mfl_api, "get_rosters", return_value=_rosters()):
+         patch("src.lineup.lineup_advice", return_value=_advice(["1", "5"])):
         data = gametime.starters_by_slot("0002", 1)
 
     everyone = [p["name"] for s in data["slots"] for p in s["players"]] + \
                [p["name"] for p in data["bye"]]
-    assert everyone == ["Hurts, Jalen"]  # only the submitted starter
+    assert sorted(everyone) == ["Bye, Guy", "Hurts, Jalen"]
 
 
 def test_player_game_time_ok_bye_and_no_team():

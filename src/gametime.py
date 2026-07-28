@@ -84,41 +84,36 @@ def team_slots(week: int | None = None) -> dict[str, dict]:
     return out
 
 
-def _starter_meta(franchise_id: str = MFL_FRANCHISE_ID) -> list[dict]:
-    """[{mfl_id, name, position, team}] for my current-week starters.
-
-    Uses MFL liveScoring (starters as submitted); falls back to the whole
-    roster when lineups aren't set yet (e.g. early in the week)."""
-    names = {p.get("id"): p for p in mfl_api.get_players()}
-
-    starter_ids: list[str] = []
+def _starter_ids(franchise_id: str, week: int | None) -> list[str]:
+    """MFL ids of my starting lineup — submitted starters if the lineup is set,
+    otherwise the optimal lineup the solver would recommend. Only the true
+    starters (~19 in this league), never the whole roster."""
     try:
-        ls = mfl_api.get_live_scoring()
-        franchises = ls.get("franchise", [])
-        if isinstance(franchises, dict):
-            franchises = [franchises]
-        for fr in franchises:
-            if fr.get("id") != franchise_id:
-                continue
-            players = fr.get("players", {}).get("player", [])
-            if isinstance(players, dict):
-                players = [players]
-            starter_ids = [p.get("id", "") for p in players
-                           if p.get("status") == "starter"]
+        from src.lineup import lineup_advice
+        adv = lineup_advice(franchise_id, None, week)
+        ids = list(adv.get("current") or [])
+        if not ids:
+            ids = [p["mfl_id"] for p in adv.get("optimal", [])]
+        if ids:
+            return ids
     except Exception:
         pass
+    # Last resort (projections/rules unavailable): whole roster.
+    for fr in mfl_api.get_rosters():
+        if fr.get("id") == franchise_id:
+            players = fr.get("player", [])
+            if isinstance(players, dict):
+                players = [players]
+            return [p.get("id", "") for p in players]
+    return []
 
-    if not starter_ids:  # fallback: whole roster
-        for fr in mfl_api.get_rosters():
-            if fr.get("id") == franchise_id:
-                players = fr.get("player", [])
-                if isinstance(players, dict):
-                    players = [players]
-                starter_ids = [p.get("id", "") for p in players]
-                break
 
+def _starter_meta(franchise_id: str = MFL_FRANCHISE_ID,
+                  week: int | None = None) -> list[dict]:
+    """[{mfl_id, name, position, team}] for my starting lineup this week."""
+    names = {p.get("id"): p for p in mfl_api.get_players()}
     out = []
-    for pid in starter_ids:
+    for pid in _starter_ids(franchise_id, week):
         m = names.get(pid, {})
         out.append({
             "mfl_id": pid,
@@ -137,7 +132,7 @@ def starters_by_slot(franchise_id: str = MFL_FRANCHISE_ID,
     with slots in chronological order and bye = starters with no game this week.
     Each player carries name/position/team plus opp/home/kickoff."""
     ts_map = team_slots(week)
-    starters = _starter_meta(franchise_id)
+    starters = _starter_meta(franchise_id, week)
 
     buckets: dict[str, list] = {}
     slot_kick: dict[str, int] = {}
