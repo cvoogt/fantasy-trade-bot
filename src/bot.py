@@ -838,6 +838,82 @@ async def freeagent_cmd(interaction: discord.Interaction, position: str | None =
     await interaction.followup.send(embed=embed)
 
 
+def _heat_bar(n: int, max_n: int, width: int = 10) -> str:
+    """A filled/empty block bar giving a heatmap-style read on how many
+    starters fall in a slot relative to the busiest one."""
+    if max_n <= 0:
+        return "░" * width
+    filled = round(width * n / max_n)
+    return "█" * filled + "░" * (width - filled)
+
+
+@bot.tree.command(name="gametime",
+                  description="When your starters play — game-slot heatmap, or one player's kickoff")
+@app_commands.describe(player="Optional: look up just this player's kickoff this week")
+async def gametime_cmd(interaction: discord.Interaction, player: str | None = None):
+    await interaction.response.defer(thinking=True)
+    from src.gametime import starters_by_slot, player_game_time, fmt_kickoff
+    from src.sleeper_api import get_nfl_state
+
+    state = await asyncio.to_thread(get_nfl_state)
+    wk = int(state.get("week") or 0)
+    week = wk if state.get("season_type") == "regular" and wk >= 1 else None
+
+    if player:
+        cands = await asyncio.to_thread(resolve_player, player, 1)
+        if not cands:
+            await interaction.followup.send(f"Couldn't find a player matching **{player}**.")
+            return
+        c = cands[0]
+        team = c.get("team") or ""
+        if not team:  # IDP/Sleeper-only entries carry no team — get it from MFL
+            def _team():
+                from src.mfl_api import get_players
+                for p in get_players():
+                    if p.get("id") == c["mfl_id"]:
+                        return p.get("team", "")
+                return ""
+            team = await asyncio.to_thread(_team)
+
+        res = await asyncio.to_thread(player_game_time, c["mfl_name"], team, week)
+        wl = f" (Week {week})" if week else ""
+        if res["status"] == "no_team":
+            desc = f"**{res['name']}** has no NFL team listed — can't look up a game."
+        elif res["status"] == "bye":
+            desc = f"**{res['name']}** ({team}) is on **BYE** this week{wl}."
+        else:
+            vs = f"vs {res['opp']}" if res["home"] else f"@ {res['opp']}"
+            desc = (f"**{res['name']}** ({c['position']}, {team}) plays "
+                    f"**{res['slot']}**{wl}\n{fmt_kickoff(res['kickoff'])} · {vs}")
+        embed = discord.Embed(title="Game Time", description=desc, color=EMBED_COLOR)
+        await interaction.followup.send(embed=embed)
+        return
+
+    data = await asyncio.to_thread(starters_by_slot, MFL_FRANCHISE_ID, week)
+    slots, bye = data["slots"], data["bye"]
+    if not slots and not bye:
+        await interaction.followup.send("No starters or NFL schedule found for this week yet.")
+        return
+
+    total = sum(len(s["players"]) for s in slots) + len(bye)
+    max_n = max((len(s["players"]) for s in slots), default=1) or 1
+
+    blocks = []
+    for s in slots:
+        n = len(s["players"])
+        roster = ", ".join(f"{p['name']} ({p['position']})" for p in s["players"])
+        blocks.append(f"`{s['slot']:<9}` {_heat_bar(n, max_n)} **{n}**\n{roster}")
+    if bye:
+        roster = ", ".join(f"{p['name']} ({p['position']})" for p in bye)
+        blocks.append(f"`{'BYE':<9}` {'░' * 10} **{len(bye)}**\n{roster}")
+
+    wl = f" — Week {week}" if week else ""
+    embed = discord.Embed(title=f"Game Time{wl} — {total} starters",
+                          description="\n\n".join(blocks), color=EMBED_COLOR)
+    embed.set_footer(text="Starters grouped by NFL game slot · kickoffs in ET")
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="update", description="Pull the latest bot code and restart")
 async def update_cmd(interaction: discord.Interaction):
     if DISCORD_OWNER_ID and interaction.user.id != DISCORD_OWNER_ID:

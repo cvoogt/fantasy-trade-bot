@@ -107,6 +107,17 @@ def get_weekly_results(week: str | int | None = None) -> dict:
     return _get("weeklyResults", params).get("weeklyResults", {})
 
 
+def get_nfl_schedule(week: str | int | None = None) -> list[dict]:
+    """NFL game schedule for a week: each game's kickoff (unix seconds) and the
+    two teams (with `id` abbreviation and `isHome`). Omit `week` for the
+    current week."""
+    params = {"W": str(week)} if week is not None else {}
+    games = _get("nflSchedule", params).get("nflSchedule", {}).get("matchup", [])
+    if isinstance(games, dict):
+        games = [games]
+    return games
+
+
 def get_live_scoring() -> dict:
     """Live scoring for the current week (starters, scores, players left)."""
     return _get("liveScoring").get("liveScoring", {})

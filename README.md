@@ -18,6 +18,7 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 | `/scan` | Scan the league for new trades and score them. |
 | `/trades [days]` | League trades from the last X days — two-column what-each-team-received layout with verdicts. |
 | `/tradefinder [player]` | No arg: mutually beneficial 1-for-1 pitches — your surplus for their surplus, both filling below-median positions. With `player`: name a player you want and get up to 5 distinct packages from your roster (singles + 2-player combos) inside the fair value band, flagging which fill the owner's thin spots. |
+| `/gametime [player]` | No arg: a heatmap of your starters grouped by NFL game slot this week (Thu night → Sunday windows → Mon night), with a BYE bucket. With `player`: when that player kicks off this week (slot, ET time, opponent). |
 | `/matchup [week]` | Head-to-head: opponent, live score, players yet to play. |
 | `/salary [team]` | Salary-cap analysis: payroll vs cap, spend by group, best/worst contracts. Defaults to you. |
 | `/cuts [team]` | Recommended cuts: cap relief on below-replacement contracts, lineup-safe. |
@@ -132,7 +133,8 @@ supersedes it but both work.
 ## Data sources (all free, no keys)
 
 - **MFL API** — rosters, salaries, transactions, live scoring, draft results,
-  scoring rules. `https://{host}.myfantasyleague.com/{year}/export` — league
+  scoring rules, and the NFL game schedule (`nflSchedule`, kickoff times — powers
+  `/gametime`). `https://{host}.myfantasyleague.com/{year}/export` — league
   year auto-detected (MFL rolls leagues over each spring; pin with `MFL_YEAR`).
 - **FantasyCalc** — dynasty values (1-QB): `api.fantasycalc.com/values/current?isDynasty=true&numQbs=1`. Cached daily.
 - **Sleeper** — weekly + season projections (all positions incl. full IDP stat
