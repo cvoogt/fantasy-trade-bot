@@ -92,10 +92,16 @@ def rules_for_position(rules: list[dict], position: str | None) -> list[dict]:
 
 
 def _eval_event(brackets: list[dict], amount: float) -> float:
-    """Points for a projected stat amount under one event's brackets."""
+    """Points for a projected stat amount under one event's brackets.
+
+    Projections are fractional (0.45 rushing TDs in a week), while MFL writes
+    brackets over whole events ('1-99'). An amount below the first bracket
+    must still score for per-event and rate styles, which are linear in the
+    amount — otherwise every sub-1.0 TD projection silently scores zero. Step
+    tables (absolute points) genuinely haven't reached their first step, so
+    they stay at 0."""
     if amount <= 0:
         return 0.0
-    # find the bracket containing the amount (clamp above the last)
     brackets = sorted(brackets, key=lambda b: b["lo"])
     hit = None
     for b in brackets:
@@ -103,9 +109,18 @@ def _eval_event(brackets: list[dict], amount: float) -> float:
             hit = b
             break
     if hit is None:
-        hit = brackets[-1] if amount > brackets[-1]["hi"] else None
-    if hit is None:
-        return 0.0
+        if amount > brackets[-1]["hi"]:
+            hit = brackets[-1]          # above the table: clamp to the top step
+        elif amount < brackets[0]["lo"]:
+            first = brackets[0]
+            # Linear styles scale down cleanly; a step table hasn't been reached.
+            if not (first["points"].startswith("*") or "/" in first["points"]):
+                return 0.0
+            hit = first
+        else:
+            # Amount fell in a gap between brackets — take the step below it.
+            below = [b for b in brackets if b["lo"] <= amount]
+            hit = below[-1] if below else brackets[0]
 
     pts = hit["points"]
     if pts.startswith("*"):           # per-event: '*3' x count
@@ -219,3 +234,16 @@ def explain_points(proj: dict, rules: list[dict] | None = None,
                      "points": round(pts, 2)})
     rows.sort(key=lambda r: abs(r["points"]), reverse=True)
     return rows
+
+
+def unmapped_events(rules: list[dict] | None = None,
+                    position: str | None = None) -> list[str]:
+    """Scoring events in the league's rules that EVENT_TO_SLEEPER doesn't map.
+
+    Every unmapped event is silently worth zero, so this is the first place to
+    look when projections come in under what MFL itself shows."""
+    if rules is None:
+        rules = fetch_rules()
+    scoped = rules_for_position(rules, position)
+    return sorted({r["event"] for r in scoped
+                   if r["event"] and r["event"] not in EVENT_TO_SLEEPER})

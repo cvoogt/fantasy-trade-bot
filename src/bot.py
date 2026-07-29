@@ -180,11 +180,11 @@ def build_lineup_embed(week: int | None = None) -> discord.Embed:
         by_slot.setdefault(p["slot"], []).append(p)
     for slot, ps in by_slot.items():
         embed.add_field(name=slot,
-                        value="\n".join(f"{p['name']} ({p['proj']:.1f})" for p in ps),
+                        value="\n".join(f"{p['name']} ({p['proj']:.0f})" for p in ps),
                         inline=True)
     if adv["start"] or adv["sit"]:
-        changes = [f"START {p['name']} ({p['proj']:.1f})" for p in adv["start"]]
-        changes += [f"SIT {p['name']} ({p['proj']:.1f})" for p in adv["sit"]]
+        changes = [f"START {p['name']} ({p['proj']:.0f})" for p in adv["start"]]
+        changes += [f"SIT {p['name']} ({p['proj']:.0f})" for p in adv["sit"]]
         embed.add_field(name="Changes vs your current lineup",
                         value="\n".join(changes), inline=False)
     elif adv["current"]:
@@ -238,7 +238,7 @@ def build_projections_embed(scope: str = "season", position: str | None = None,
     for i, (pts, name, pos, is_mine, sources) in enumerate(rows[:15], 1):
         star = " ⭐" if is_mine else ""
         src = "²" if sources > 1 else ""
-        lines.append(f"`{i:>2}.` **{name}** ({pos}) — {pts:.1f}{src}{star}")
+        lines.append(f"`{i:>2}.` **{name}** ({pos}) — {pts:.0f}{src}{star}")
     embed = discord.Embed(title=title, description="\n".join(lines) or "—",
                           color=EMBED_COLOR)
     embed.set_footer(text="League scoring · ² = multi-source blend · ⭐ = your roster")
@@ -268,10 +268,10 @@ def build_freeagent_embed(position: str | None = None,
 
     lines = []
     for i, r in enumerate(rows, 1):
-        wk_str = f" | Week {week}: {r['week_pts']:.1f} pts" if r["week_pts"] is not None else ""
+        wk_str = f" | Week {week}: {r['week_pts']:.0f} pts" if r["week_pts"] is not None else ""
         lines.append(
             f"`{i:>2}.` **{r['name']}** ({r['position']}, {r['team']}) — "
-            f"Season: {r['season_pts']:.1f} pts{wk_str} | Salary: ${r['salary']:,.0f}"
+            f"Season: {r['season_pts']:.0f} pts{wk_str} | Salary: ${r['salary']:,.0f}"
         )
     return discord.Embed(title=f"Free Agents — {label}",
                          description="\n".join(lines), color=EMBED_COLOR)
@@ -316,6 +316,42 @@ def build_gametime_embed() -> discord.Embed | str:
 
 
 # Commands that can be scheduled to auto-post. name -> zero-arg builder.
+_STATUS_EMOJI = {
+    "IR": "🔴", "PUP": "🔴", "DNR": "🔴", "Out": "🔴", "Sus": "🔴",
+    "NA": "🟠", "COV": "🟠", "Doubtful": "🟠",
+    "Questionable": "🟡", "Healthy": "🟢",
+}
+
+
+def build_injury_embed(include_healthy: bool = True) -> discord.Embed | str:
+    from src.injuries import roster_injuries, STATUS_ORDER
+
+    players = roster_injuries(MFL_FRANCHISE_ID, include_healthy)
+    if not players:
+        return "No players found on your roster."
+
+    by_status: dict[str, list] = {}
+    for p in players:
+        by_status.setdefault(p["status"], []).append(p)
+
+    hurt = sum(len(v) for s, v in by_status.items() if s != "Healthy")
+    embed = discord.Embed(
+        title="🏥 Injury Report",
+        description=(f"**{hurt}** of {len(players)} rostered players carrying a "
+                     f"status." if hurt else "Everyone healthy. 🎉"),
+        color=0xCC3333 if hurt else EMBED_COLOR,
+    )
+    for status in STATUS_ORDER:
+        group = by_status.get(status)
+        if not group:
+            continue
+        names = ", ".join(f"{p['name']} ({p['position']})" for p in group)
+        embed.add_field(
+            name=f"{_STATUS_EMOJI.get(status, '⚪')} {status} — {len(group)}",
+            value=names[:1024], inline=False)
+    return embed
+
+
 def build_weekly_report_embed() -> discord.Embed:
     from src.discord_report import build_report_embed
     return build_report_embed(_cache.get())
@@ -329,6 +365,7 @@ SCHEDULABLE = {
     "projections": build_projections_embed,
     "freeagent": build_freeagent_embed,
     "report": build_weekly_report_embed,
+    "injury": build_injury_embed,
 }
 
 
@@ -409,7 +446,7 @@ async def player_cmd(interaction: discord.Interaction, name: str):
             proj_lines += f"\nProj (season): **{sp['points']:.0f} pts**"
         wp = week_proj.get(c["mfl_id"])
         if wp:
-            proj_lines += f"\nProj (this week): **{wp['points']:.1f} pts**"
+            proj_lines += f"\nProj (this week): **{wp['points']:.0f} pts**"
         embed.add_field(
             name=f"{c['fc_name']} ({info['position']}, {c['team']})",
             value=(
@@ -966,6 +1003,17 @@ async def gametime_cmd(interaction: discord.Interaction, player: str | None = No
         return
 
     result = await asyncio.to_thread(build_gametime_embed)
+    if isinstance(result, discord.Embed):
+        await interaction.followup.send(embed=result)
+    else:
+        await interaction.followup.send(result)
+
+
+@bot.tree.command(name="injury", description="Injury status for every player on your roster")
+@app_commands.describe(hide_healthy="Only show players carrying a status")
+async def injury_cmd(interaction: discord.Interaction, hide_healthy: bool = False):
+    await interaction.response.defer(thinking=True)
+    result = await asyncio.to_thread(build_injury_embed, not hide_healthy)
     if isinstance(result, discord.Embed):
         await interaction.followup.send(embed=result)
     else:

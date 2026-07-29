@@ -14,6 +14,7 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 | `/freeagent [position] [rookies]` | Top available free agents ranked by season projection, with next-week projection and salary. Optional position filter; `rookies` = `Y` (rookies only) / `n` (exclude rookies) / omit (both). |
 | `/lineup [week]` | Optimal starting lineup from weekly projections (IDP-aware), plus start/sit changes vs your submitted lineup. |
 | `/player name:` | Dynasty value, salary, value-per-dollar, VOR for any player (fuzzy name ok). |
+| `/injury [hide_healthy]` | Injury status for every player on your roster, grouped worst-first (IR → Out → Doubtful → Questionable → Healthy). `hide_healthy:True` shows only players carrying a status. |
 | `/roster` | Roster health: value by position vs league median + league rank. |
 | `/scan` | Scan the league for new trades and score them. |
 | `/trades [days]` | League trades from the last X days — two-column what-each-team-received layout with verdicts. |
@@ -65,7 +66,7 @@ channel where you set it.
 ```
 
 Schedulable commands: `gametime`, `waivers`, `roster`, `lineup`, `projections`,
-`freeagent`, `report`. Times accept `11AM`, `7:30PM`, or 24-hour `13:00`; days
+`freeagent`, `report`, `injury`. Times accept `11AM`, `7:30PM`, or 24-hour `13:00`; days
 accept full names or abbreviations (`Sunday`, `Sun`). Schedules persist in
 SQLite, so they survive restarts.
 
@@ -181,6 +182,15 @@ are picked up automatically. Two properties of MFL rules matter:
   define the same event differently (QB rushing yards vs RB rushing yards).
   Each player is scored against their own position's rules
   (`scoring.rules_for_position`).
+- **Projections are fractional, brackets are whole.** A weekly projection is
+  "0.48 receiving TDs", while MFL writes the rule over `1-99`. Amounts below a
+  bracket's floor still score for per-event (`*6`) and rate (`1/20`) styles,
+  which are linear — otherwise every sub-1.0 TD projection silently scores
+  zero. Step tables are the exception: they genuinely haven't reached their
+  first step, so they stay at 0, as does an explicit `0`-point dead-zone
+  bracket.
+
+Projected points are displayed as whole numbers throughout.
 
 To see exactly how a player's projection is built:
 
@@ -189,9 +199,15 @@ To see exactly how a player's projection is built:
 .venv/bin/python -m src.cli explain "Josh Allen" --week 3
 ```
 
-It prints the per-event breakdown (stat, projected amount, points) plus how
-many of the league's rules apply to that position — the fastest way to spot a
-scoring rule that isn't mapping.
+It prints the per-event breakdown (stat, projected amount, points), how many of
+the league's rules apply to that position, **any scoring events in your rules
+that aren't mapped to a projection stat** (those silently score zero — the
+first thing to check when the bot comes in under MFL's own projection), and the
+raw stat line the source provided.
+
+If `explain` lists unmapped events that matter, add them to `EVENT_TO_SLEEPER`
+in `src/scoring.py`; the mapping is a plain dict from MFL event code to Sleeper
+stat key.
 
 ## IDP dynasty values
 

@@ -1,5 +1,5 @@
 from src.scoring import (_eval_event, project_points, season_points,
-                         rules_for_position, explain_points)
+                         rules_for_position, explain_points, unmapped_events)
 
 # Brackets mirroring league 68447's real rules
 PY = [  # passing yards: dead zone, rate, milestone bonuses at 300/400
@@ -142,6 +142,49 @@ def test_position_scoping_changes_the_score():
 
 
 # ---- diagnostics ----
+
+# ---- fractional projections vs whole-event brackets ----
+
+def test_fractional_per_event_scores_proportionally():
+    """Weekly TD/INT projections are fractional; a '1-99' bracket must still
+    pay out below 1.0 or every sub-1.0 TD projection silently scores zero."""
+    assert _eval_event(IC, 0.5) == 5.0     # was 0.0
+    assert _eval_event(IC, 0.9) == 9.0     # was 0.0
+    assert _eval_event(IC, 1.0) == 10.0    # unchanged
+
+
+def test_fractional_rate_below_first_bracket():
+    sk = [{"event": "SK", "points": "2/0.5", "lo": 0.5, "hi": 99, "threshold": None}]
+    assert _eval_event(sk, 0.25) == 1.0    # quarter sack still pays
+
+
+def test_explicit_dead_zone_still_scores_zero():
+    """PY's 0-19 bracket says '0' points — that must stay zero, since it's a
+    real bracket rather than a below-the-table amount."""
+    for amt in (5, 15, 19):
+        assert _eval_event(PY, amt) == 0.0
+    assert _eval_event(PY, 20) == 1.0
+
+
+def test_step_table_below_first_step_stays_zero():
+    """A step table hasn't been reached yet — no partial credit."""
+    steps = [{"event": "X", "points": "8", "lo": 80, "hi": 89, "threshold": None}]
+    assert _eval_event(steps, 30) == 0.0
+
+
+def test_gap_between_brackets_uses_step_below():
+    gap = [{"event": "X", "points": "5", "lo": 0, "hi": 9, "threshold": None},
+           {"event": "X", "points": "9", "lo": 20, "hi": 29, "threshold": None}]
+    assert _eval_event(gap, 15) == 5.0     # was 0.0
+
+
+def test_unmapped_events_reported():
+    rules = [{"event": "PY", "points": "1/20", "lo": 0, "hi": 9, "threshold": None,
+              "positions": set()},
+             {"event": "XYZ", "points": "*5", "lo": 0, "hi": 9, "threshold": None,
+              "positions": set()}]
+    assert unmapped_events(rules) == ["XYZ"]   # PY is mapped, XYZ is not
+
 
 def test_explain_points_breaks_down_contributions():
     rows = explain_points({"pass_yd": 250, "idp_int": 1}, PY + IC)

@@ -85,6 +85,59 @@ def check_injuries(franchise_id: str = MFL_FRANCHISE_ID) -> list[InjuryChange]:
     return changes
 
 
+# Display order for a status listing: worst first, healthy last.
+STATUS_ORDER = ["IR", "PUP", "DNR", "Out", "Sus", "NA", "COV", "Doubtful",
+                "Questionable", "Healthy"]
+
+
+def roster_injuries(franchise_id: str = MFL_FRANCHISE_ID,
+                    include_healthy: bool = True) -> list[dict]:
+    """Current injury status for every player on my roster.
+
+    Returns [{mfl_id, name, position, status}] sorted worst status first, then
+    by position and name. Status is 'Healthy' when Sleeper reports nothing."""
+    smap = get_sleeper_map()
+    roster = _my_roster_ids(franchise_id)
+    my_sids = {pid: smap[pid] for pid in roster if pid in smap}
+
+    refresh_players_cache()  # respects the 24h TTL
+
+    conn = get_conn()
+    rows = {
+        r["sleeper_id"]: (r["injury_status"] or "", r["name"], r["position"])
+        for r in conn.execute(
+            "SELECT sleeper_id, injury_status, name, position FROM sleeper_players")
+    }
+    conn.close()
+
+    # MFL names/positions as a fallback for anyone missing from Sleeper.
+    mfl_meta = {p.get("id"): p for p in mfl_api.get_players()}
+
+    out = []
+    for pid in roster:
+        sid = my_sids.get(pid)
+        status, name, pos = rows.get(sid, ("", "", "")) if sid else ("", "", "")
+        if not name:
+            meta = mfl_meta.get(pid, {})
+            name = meta.get("name", pid)
+            pos = meta.get("position", "?")
+        status = status or "Healthy"
+        if not include_healthy and status == "Healthy":
+            continue
+        out.append({"mfl_id": pid, "name": name, "position": pos,
+                    "status": status})
+
+    def sort_key(p):
+        try:
+            rank = STATUS_ORDER.index(p["status"])
+        except ValueError:
+            rank = len(STATUS_ORDER) - 1  # unknown status sits with healthy
+        return (rank, p["position"], p["name"])
+
+    out.sort(key=sort_key)
+    return out
+
+
 def bench_replacements(position: str, franchise_id: str = MFL_FRANCHISE_ID,
                        exclude: set[str] | None = None, top_n: int = 2) -> list[dict]:
     """My best other players at a position, by dynasty value (works offseason)."""

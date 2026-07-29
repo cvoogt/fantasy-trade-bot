@@ -104,7 +104,8 @@ def main():
     elif args.command == "explain":
         init_db()
         from src.crosswalk import resolve_player
-        from src.scoring import fetch_rules, explain_points, rules_for_position
+        from src.scoring import (fetch_rules, explain_points, rules_for_position,
+                                 unmapped_events)
         from src.sleeper_xwalk import get_sleeper_map
         from src.sleeper_api import get_nfl_state, get_projections
         from src.projections import _sleeper_season
@@ -143,6 +144,17 @@ def main():
         for r in rows:
             print(f"  {r['event']:<6} {r['stat']:<16} {r['amount']:>10.1f} {r['points']:>9.2f}")
         print(f"  {'':<6} {'':<16} {'TOTAL':>10} {sum(r['points'] for r in rows):>9.2f}")
+
+        missing = unmapped_events(rules, position)
+        if missing:
+            print(f"\n  ⚠ {len(missing)} scoring event(s) in your rules are NOT mapped")
+            print(f"    to a projection stat, so they score 0: {', '.join(missing)}")
+            print("    Add them to EVENT_TO_SLEEPER in src/scoring.py if they matter.")
+
+        print("\n  Raw projection stats Sleeper provided:")
+        for k, v in sorted(row.items()):
+            if isinstance(v, (int, float)) and v:
+                print(f"    {k:<22} {v}")
 
     else:
         parser.print_help()
