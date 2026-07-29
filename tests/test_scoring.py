@@ -1,4 +1,5 @@
-from src.scoring import _eval_event, project_points
+from src.scoring import (_eval_event, project_points, season_points,
+                         rules_for_position, explain_points)
 
 # Brackets mirroring league 68447's real rules
 PY = [  # passing yards: dead zone, rate, milestone bonuses at 300/400
@@ -7,7 +8,17 @@ PY = [  # passing yards: dead zone, rate, milestone bonuses at 300/400
     {"event": "PY", "points": "1/20", "lo": 300, "hi": 399, "threshold": 20},
     {"event": "PY", "points": "1/20", "lo": 400, "hi": 999, "threshold": 30},
 ]
-RY = [  # rushing yards: step table with the 100-yard jump
+RY = [  # rushing yards: step table with the 100-yard jump.
+    # Covers the full per-game range, as MFL's real tables do — a table that
+    # started at 80 would score every low-volume game as zero.
+    {"event": "RY", "points": "0", "lo": 0, "hi": 9, "threshold": None},
+    {"event": "RY", "points": "1", "lo": 10, "hi": 19, "threshold": None},
+    {"event": "RY", "points": "2", "lo": 20, "hi": 29, "threshold": None},
+    {"event": "RY", "points": "3", "lo": 30, "hi": 39, "threshold": None},
+    {"event": "RY", "points": "4", "lo": 40, "hi": 49, "threshold": None},
+    {"event": "RY", "points": "5", "lo": 50, "hi": 59, "threshold": None},
+    {"event": "RY", "points": "6", "lo": 60, "hi": 69, "threshold": None},
+    {"event": "RY", "points": "7", "lo": 70, "hi": 79, "threshold": None},
     {"event": "RY", "points": "8", "lo": 80, "hi": 89, "threshold": None},
     {"event": "RY", "points": "9", "lo": 90, "hi": 99, "threshold": None},
     {"event": "RY", "points": "15", "lo": 100, "hi": 109, "threshold": None},
@@ -67,3 +78,75 @@ def test_project_points_sums_events():
 def test_project_points_ignores_unmapped():
     rules = [{"event": "ZZ", "points": "*100", "lo": 0, "hi": 99, "threshold": None}]
     assert project_points({"pass_yd": 300}, rules) == 0.0
+
+
+# ---- season scoring: per-game brackets must not be fed season totals ----
+
+def test_step_table_clamps_on_season_total():
+    # The bug: a step table tops out at its last bracket, so a whole season of
+    # rushing scores the same as a single 100-yard game.
+    assert _eval_event(RY, 531) == _eval_event(RY, 100) == 15.0
+
+
+def test_season_points_scales_through_step_table():
+    """531 rushing yards should far exceed a single 100-yard game's 15 pts."""
+    season = season_points({"rush_yd": 531}, RY, games=17)
+    single_game = project_points({"rush_yd": 531}, RY)
+    assert single_game == 15.0        # old, clamped behaviour
+    assert season > 40                # ~31 yds/gm scored 17 times
+    assert season > single_game * 2
+
+
+def test_season_points_is_scale_invariant_for_rates_and_counts():
+    """Pure rates ('1/20') and per-event ('*10') must be unaffected."""
+    # 3400 pass yds at 1/20 = 170 either way (no threshold bracket in play)
+    flat_py = [{"event": "PY", "points": "1/20", "lo": 0, "hi": 99999,
+                "threshold": None}]
+    assert season_points({"pass_yd": 3400}, flat_py, games=17) == 170.0
+    assert season_points({"idp_int": 17}, IC, games=17) == 170.0
+
+
+def test_season_points_zero_games():
+    assert season_points({"rush_yd": 500}, RY, games=0) == 0.0
+
+
+# ---- position-scoped rules ----
+
+QB_RY = [{"event": "RY", "points": "1/10", "lo": 0, "hi": 999,
+          "threshold": None, "positions": {"QB"}}]
+RB_RY = [{"event": "RY", "points": "8", "lo": 80, "hi": 89,
+          "threshold": None, "positions": {"RB"}}]
+
+
+def test_rules_for_position_filters():
+    both = QB_RY + RB_RY
+    assert rules_for_position(both, "QB") == QB_RY
+    assert rules_for_position(both, "RB") == RB_RY
+
+
+def test_rules_for_position_keeps_unscoped_rules():
+    unscoped = [{"event": "PY", "points": "1/20", "lo": 0, "hi": 999,
+                 "threshold": None, "positions": set()}]
+    assert rules_for_position(unscoped + QB_RY, "RB") == unscoped
+
+
+def test_rules_for_position_falls_back_when_nothing_matches():
+    # A league that doesn't scope by position shouldn't score everyone as 0.
+    assert rules_for_position(QB_RY, "WR") == QB_RY
+
+
+def test_position_scoping_changes_the_score():
+    both = QB_RY + RB_RY
+    assert project_points({"rush_yd": 85}, both, "QB") == 8.5
+    assert project_points({"rush_yd": 85}, both, "RB") == 8.0
+
+
+# ---- diagnostics ----
+
+def test_explain_points_breaks_down_contributions():
+    rows = explain_points({"pass_yd": 250, "idp_int": 1}, PY + IC)
+    by_event = {r["event"]: r["points"] for r in rows}
+    assert by_event["PY"] == 12.5
+    assert by_event["IC"] == 10.0
+    assert rows[0]["event"] == "PY"       # sorted by contribution
+    assert all(r["amount"] for r in rows)  # zero stats omitted

@@ -17,82 +17,129 @@ from src.waivers import waiver_gems
 from src.scanner import scan_trades, recent_lopsided
 
 
-_LINE = "-" * 40
+REPORT_COLOR = 0x2E8B57  # sea green, matching the bot's embeds
+
+# Bar drawn next to each position to show roster value vs the league median.
+_BAR_WIDTH = 12
 
 
-def _roster_health_section(value_map: dict) -> str:
+def _delta_bar(delta: float, scale: float) -> str:
+    """A centered bar: filled blocks right of centre when above median, left
+    when below. `scale` is the largest absolute delta, setting full deflection."""
+    if scale <= 0:
+        return "·" * _BAR_WIDTH
+    half = _BAR_WIDTH // 2
+    n = min(half, round(half * abs(delta) / scale))
+    if delta >= 0:
+        return "·" * half + "█" * n + "·" * (half - n)
+    return "·" * (half - n) + "█" * n + "·" * half
+
+
+def _roster_health_section(value_map: dict) -> tuple[str, str]:
+    """(field name, field value) for the roster-health block."""
     fv = franchise_positional_value(value_map)
     medians = league_median_by_position(fv)
     mine = fv.get(MFL_FRANCHISE_ID, {})
 
-    lines = ["**My Roster Health**"]
+    totals = {fid: sum(v.values()) for fid, v in fv.items()}
+    rank = (sorted(totals, key=lambda f: totals[f], reverse=True)
+            .index(MFL_FRANCHISE_ID) + 1) if MFL_FRANCHISE_ID in totals else None
+
+    deltas = {pos: mine.get(pos, 0.0) - medians[pos] for pos in medians}
+    scale = max((abs(d) for d in deltas.values()), default=0.0)
+
+    rows = []
     for pos in sorted(medians):
-        my_val = mine.get(pos, 0.0)
-        med = medians[pos]
-        delta = my_val - med
-        arrow = "^" if delta >= 0 else "v"
-        lines.append(
-            f"  {pos:<4} {my_val:>6.0f}  vs median {med:>6.0f}  [{arrow}{abs(delta):.0f}]"
-        )
-    return "\n".join(lines)
+        d = deltas[pos]
+        sign = "+" if d >= 0 else "−"
+        rows.append(f"{pos:<5} {mine.get(pos, 0.0):>7,.0f} {_delta_bar(d, scale)} "
+                    f"{sign}{abs(d):>6,.0f}")
+
+    name = "📊 Roster Health"
+    if rank:
+        name += f" — #{rank} of {len(totals)}"
+    body = "```\n" + "\n".join(rows) + "\n```" if rows else "_No data._"
+    return name, body
 
 
-def _waiver_section(value_map: dict) -> str:
+def _waiver_section(value_map: dict) -> tuple[str, str]:
     report = waiver_gems(value_map=value_map)
     thin = report["thin_positions"]
-    lines = ["**Top Waiver Gems**"]
-    if thin:
-        lines.append(f"  Thin positions: {', '.join(sorted(thin))}")
 
+    lines = []
     for i, pair in enumerate(report["pairs"], 1):
-        gem = pair["gem"]
-        drop = pair["drop"]
-        tag = " [thin]" if gem["position"] in thin else ""
+        gem, drop = pair["gem"], pair["drop"]
+        tag = " 🎯" if gem["position"] in thin else ""
         lines.append(
-            f"  {i}. ADD  {gem['name']} ({gem['position']}, val={gem['dynasty_value']:.0f}){tag}"
+            f"**{i}.** 🟢 **{gem['name']}** · {gem['position']} · "
+            f"`{gem['dynasty_value']:,.0f}`{tag}"
         )
         if drop:
             lines.append(
-                f"     DROP {drop['name']} ({drop['position']}, val={drop['dynasty_value']:.0f})"
+                f"　　🔻 drop {drop['name']} · {drop['position']} · "
+                f"`{drop['dynasty_value']:,.0f}`"
             )
 
-    return "\n".join(lines)
+    name = "💎 Top Waiver Gems"
+    if thin:
+        name += f" — thin at {', '.join(sorted(thin))}"
+    return name, ("\n".join(lines) if lines else "_None worth adding._")
 
 
-def _trades_section() -> str:
+def _trades_section() -> tuple[str, str]:
     lopsided = recent_lopsided(limit=5)
-    lines = ["**Lopsided Trades This Week**"]
     if not lopsided:
-        lines.append("  None flagged.")
-        return "\n".join(lines)
+        return "⚖️ Lopsided Trades", "_None flagged this week._"
 
     from src.mfl_api import franchise_name
+    lines = []
     for row in lopsided:
         ts = datetime.fromtimestamp(row["timestamp"], tz=timezone.utc).strftime("%b %d")
         winner = row["franchise1"] if row["favored"] == 1 else row["franchise2"]
         loser = row["franchise2"] if row["favored"] == 1 else row["franchise1"]
         lines.append(
-            f"  {ts}  {franchise_name(winner)} FLEECED {franchise_name(loser)}  "
-            f"(gap {row['value_delta_pct']*100:.0f}%, {row['verdict']})"
+            f"`{ts}` **{franchise_name(winner)}** fleeced {franchise_name(loser)} "
+            f"— gap **{row['value_delta_pct']*100:.0f}%**"
         )
-    return "\n".join(lines)
+    return "⚖️ Lopsided Trades", "\n".join(lines)
+
+
+def report_sections(value_map: dict | None = None) -> list[tuple[str, str]]:
+    """[(heading, body)] for the weekly report, ready to render as embed
+    fields (bot) or plain text (webhook/CLI)."""
+    if value_map is None:
+        value_map = get_value_map()
+    return [
+        _roster_health_section(value_map),
+        _waiver_section(value_map),
+        _trades_section(),
+    ]
 
 
 def build_report(value_map: dict | None = None) -> str:
-    if value_map is None:
-        value_map = get_value_map()
-
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    parts = [
-        f"**Fantasy Trade Bot Report** - {now}",
-        _LINE,
-        _roster_health_section(value_map),
-        _LINE,
-        _waiver_section(value_map),
-        _LINE,
-        _trades_section(),
-    ]
+    """Plain-text rendering (webhook + CLI paths)."""
+    now = datetime.now(timezone.utc).strftime("%b %d, %Y · %H:%M UTC")
+    parts = [f"## 🏈 Fantasy Trade Bot Report\n_{now}_"]
+    for heading, body in report_sections(value_map):
+        parts.append(f"\n**{heading}**\n{body}")
     return "\n".join(parts)
+
+
+def build_report_embed(value_map: dict | None = None):
+    """discord.Embed rendering (bot path). Imported lazily so this module
+    still works without discord.py installed (CLI/webhook use)."""
+    import discord
+
+    embed = discord.Embed(
+        title="🏈 Fantasy Trade Bot Report",
+        color=REPORT_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    for heading, body in report_sections(value_map):
+        # Discord caps a field value at 1024 chars.
+        embed.add_field(name=heading, value=body[:1024], inline=False)
+    embed.set_footer(text="Dynasty values · FantasyCalc + league-scored IDP")
+    return embed
 
 
 def _chunks(text: str, limit: int = 1990) -> list[str]:

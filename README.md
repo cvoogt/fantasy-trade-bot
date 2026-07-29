@@ -24,7 +24,7 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 | `/cuts [team]` | Recommended cuts: cap relief on below-replacement contracts, lineup-safe. |
 | `/draft` | Rookie draft board: who's on the clock, best available, your remaining picks. |
 | `/projections [scope] [position] [week]` | Top projected players under league scoring — season or weekly, all positions incl. IDP, multi-source blend. |
-| `/schedule command: day: time:` | Auto-post a command in the current channel every week at a day + time (CT). Schedulable: `gametime`, `waivers`, `roster`, `lineup`, `projections`, `freeagent`. E.g. `/schedule gametime Sunday 11AM`. |
+| `/schedule command: day: time:` | Auto-post a command in the current channel every week at a day + time (CT). Schedulable: `gametime`, `waivers`, `roster`, `lineup`, `projections`, `freeagent`, `report`. E.g. `/schedule gametime Sunday 11AM`. |
 | `/schedules [remove]` | List your scheduled auto-posts; pass `remove:<id>` to cancel one. |
 | `/update` | Pull the latest bot code, sync deps, restart in place (owner-only if `DISCORD_OWNER_ID` set). |
 
@@ -65,9 +65,9 @@ channel where you set it.
 ```
 
 Schedulable commands: `gametime`, `waivers`, `roster`, `lineup`, `projections`,
-`freeagent`. Times accept `11AM`, `7:30PM`, or 24-hour `13:00`; days accept full
-names or abbreviations (`Sunday`, `Sun`). Schedules persist in SQLite, so they
-survive restarts.
+`freeagent`, `report`. Times accept `11AM`, `7:30PM`, or 24-hour `13:00`; days
+accept full names or abbreviations (`Sunday`, `Sun`). Schedules persist in
+SQLite, so they survive restarts.
 
 ## Setup
 
@@ -164,6 +164,34 @@ supersedes it but both work.
 - **ESPN** (unofficial fantasy API) — second projection source for offense,
   blended 50/50 with Sleeper at the league-scored-points level. Projections
   cache refreshes every 6 hours (`proj_points` table).
+
+## Scoring model
+
+Projections are scored under **your league's own MFL rules**, fetched live from
+the `rules` export and cached for a day — nothing is hardcoded, so rule changes
+are picked up automatically. Two properties of MFL rules matter:
+
+- **Brackets are per-game.** The 100-yard rushing step, the 300-yard passing
+  bonus and the tackle thresholds all describe a single game. A season-total
+  stat line must therefore be scored per-game and scaled up
+  (`scoring.season_points`) — scoring a season total directly against a step
+  table makes it clamp at the last bracket, so 1,500 rushing yards would score
+  the same as 100.
+- **Rules are position-scoped.** MFL groups rules by position, and groups can
+  define the same event differently (QB rushing yards vs RB rushing yards).
+  Each player is scored against their own position's rules
+  (`scoring.rules_for_position`).
+
+To see exactly how a player's projection is built:
+
+```bash
+.venv/bin/python -m src.cli explain "Josh Allen"          # season
+.venv/bin/python -m src.cli explain "Josh Allen" --week 3
+```
+
+It prints the per-event breakdown (stat, projected amount, points) plus how
+many of the league's rules apply to that position — the fastest way to spot a
+scoring rule that isn't mapping.
 
 ## IDP dynasty values
 

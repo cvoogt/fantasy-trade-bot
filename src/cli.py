@@ -28,6 +28,10 @@ def main():
     tile_p = sub.add_parser("tile", help="Write/serve Homarr status tile")
     tile_p.add_argument("--serve", action="store_true", help="Run Flask server")
 
+    exp_p = sub.add_parser("explain", help="Show how a player's projection is scored")
+    exp_p.add_argument("player", help="Player name (fuzzy match ok)")
+    exp_p.add_argument("--week", type=int, help="Score a week instead of the season")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -96,6 +100,49 @@ def main():
             status = write_status()
             import json
             print(json.dumps(status, indent=2))
+
+    elif args.command == "explain":
+        init_db()
+        from src.crosswalk import resolve_player
+        from src.scoring import fetch_rules, explain_points, rules_for_position
+        from src.sleeper_xwalk import get_sleeper_map
+        from src.sleeper_api import get_nfl_state, get_projections
+        from src.projections import _sleeper_season
+        from src import mfl_api
+
+        cands = resolve_player(args.player, limit=1)
+        if not cands:
+            print(f"No player matching {args.player!r}")
+            return
+        c = cands[0]
+        position = next((p.get("position") for p in mfl_api.get_players()
+                         if p.get("id") == c["mfl_id"]), None)
+        sid = get_sleeper_map().get(c["mfl_id"])
+        if not sid:
+            print(f"{c['mfl_name']}: no Sleeper id in the crosswalk.")
+            return
+
+        state = get_nfl_state()
+        season = int(state["season"])
+        if args.week:
+            row = get_projections(season, args.week).get(sid)
+            scope = f"week {args.week}"
+        else:
+            row = _sleeper_season(season).get(sid)
+            scope = "season"
+        if not row:
+            print(f"{c['mfl_name']}: no Sleeper projection for {scope}.")
+            return
+
+        rules = fetch_rules()
+        scoped = rules_for_position(rules, position)
+        rows = explain_points(row, rules, position, season=not args.week)
+        print(f"{c['mfl_name']} ({position}) — {season} {scope}")
+        print(f"  {len(scoped)} of {len(rules)} scoring rules apply to {position}")
+        print(f"  {'EVENT':<6} {'STAT':<16} {'PROJECTED':>10} {'POINTS':>9}")
+        for r in rows:
+            print(f"  {r['event']:<6} {r['stat']:<16} {r['amount']:>10.1f} {r['points']:>9.2f}")
+        print(f"  {'':<6} {'':<16} {'TOTAL':>10} {sum(r['points'] for r in rows):>9.2f}")
 
     else:
         parser.print_help()

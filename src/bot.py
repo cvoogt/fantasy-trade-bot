@@ -316,6 +316,11 @@ def build_gametime_embed() -> discord.Embed | str:
 
 
 # Commands that can be scheduled to auto-post. name -> zero-arg builder.
+def build_weekly_report_embed() -> discord.Embed:
+    from src.discord_report import build_report_embed
+    return build_report_embed(_cache.get())
+
+
 SCHEDULABLE = {
     "gametime": build_gametime_embed,
     "waivers": build_waivers_embed,
@@ -323,6 +328,7 @@ SCHEDULABLE = {
     "lineup": build_lineup_embed,
     "projections": build_projections_embed,
     "freeagent": build_freeagent_embed,
+    "report": build_weekly_report_embed,
 }
 
 
@@ -1315,20 +1321,19 @@ async def weekly_report():
     if not ((now.weekday() == 6 and now.hour == 22) or (now.weekday() == 1 and now.hour == 20)):
         return
     try:
-        from src.discord_report import build_report, _chunks
+        from src.discord_report import build_report_embed
         from src.homarr_tile import write_status
 
         value_map = await asyncio.to_thread(_cache.get)
         await asyncio.to_thread(scan_trades, value_map)
-        report = await asyncio.to_thread(build_report, value_map)
+        embed = await asyncio.to_thread(build_report_embed, value_map)
         await asyncio.to_thread(write_status)
 
         ch = await bot.alert_channel()
         if ch is None:
             log.warning("Weekly report built but no alert channel configured.")
             return
-        for chunk in _chunks(report):
-            await ch.send(chunk)
+        await ch.send(embed=embed)
     except Exception:
         log.exception("weekly_report failed")
 

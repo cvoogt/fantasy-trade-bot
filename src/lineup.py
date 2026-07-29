@@ -147,10 +147,10 @@ def lineup_advice(
     try:
         from src.scoring import fetch_rules, project_points
         rules = fetch_rules()
-        def _points(proj: dict) -> float:
-            return project_points(proj, rules)
+        def _points(proj: dict, position: str | None = None) -> float:
+            return project_points(proj, rules, position)
     except Exception:
-        def _points(proj: dict) -> float:
+        def _points(proj: dict, position: str | None = None) -> float:
             return float(proj.get("pts_ppr") or 0)
 
     # my roster
@@ -179,7 +179,7 @@ def lineup_advice(
         if pid in blended:
             pts = blended[pid]["points"]
         elif proj_row:
-            pts = _points(proj_row)
+            pts = _points(proj_row, meta.get("position"))
         else:
             pts = 0.0
         entry = {

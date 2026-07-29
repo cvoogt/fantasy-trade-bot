@@ -11,7 +11,7 @@ import os
 import time
 
 from src.sleeper_api import get_nfl_state
-from src.scoring import fetch_rules, project_points
+from src.scoring import fetch_rules, season_points
 
 IDP_POSITIONS = {"DT", "DE", "LB", "CB", "S"}
 IDP_TOP_VALUE = float(os.getenv("IDP_TOP_VALUE", "4000"))
@@ -73,7 +73,8 @@ def compute_idp_values() -> dict[str, dict]:
         st = stats.get(r["sleeper_id"])
         if not st:
             continue
-        pts = project_points(st, rules)
+        # `st` is a full-season stat line; MFL brackets are per-game.
+        pts = season_points(st, rules, r["position"])
         if pts <= 0:
             continue
         raw[r["mfl_id"]] = {

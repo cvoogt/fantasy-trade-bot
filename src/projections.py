@@ -19,7 +19,7 @@ import requests
 
 from src import mfl_api
 from src.db import get_conn
-from src.scoring import fetch_rules, project_points
+from src.scoring import fetch_rules, project_points, season_points
 from src.sleeper_api import get_projections as sleeper_week_projections
 from src.sleeper_xwalk import get_sleeper_map
 
@@ -72,12 +72,16 @@ def _espn_projection(row: dict, season: int, week: int | None) -> dict | None:
 
 def _espn_by_mfl(season: int, week: int | None) -> dict[str, float]:
     """{mfl_id: espn league-scored points} for offense."""
-    espn_to_mfl = {}
+    espn_to_mfl, positions = {}, {}
     for p in mfl_api.get_players():
         if p.get("espn_id"):
             espn_to_mfl[str(p["espn_id"])] = p["id"]
+        positions[p["id"]] = p.get("position", "")
 
     rules = fetch_rules()
+    # Season rows are season TOTALS — score them per-game and scale up, or the
+    # per-game brackets clamp (see scoring.season_points).
+    score = project_points if week is not None else season_points
     out = {}
     try:
         rows = _espn_rows(season)
@@ -90,7 +94,7 @@ def _espn_by_mfl(season: int, week: int | None) -> dict[str, float]:
             continue
         proj = _espn_projection(row, season, week)
         if proj:
-            out[mfl_id] = project_points(proj, rules)
+            out[mfl_id] = score(proj, rules, positions.get(mfl_id))
     return out
 
 
@@ -103,15 +107,19 @@ def refresh_projections(season: int, week: int | None = None) -> int:
 
     if week is not None:
         sleeper = sleeper_week_projections(season, week)
+        score = project_points
     else:
         sleeper = _sleeper_season(season)
+        score = season_points  # season totals need per-game bracket handling
+
+    positions = {p["id"]: p.get("position", "") for p in mfl_api.get_players()}
 
     sleeper_pts: dict[str, float] = {}
     for mfl_id, sid in smap.items():
         row = sleeper.get(sid)
         if not row:
             continue
-        pts = project_points(row, rules)
+        pts = score(row, rules, positions.get(mfl_id))
         if pts > 0:
             sleeper_pts[mfl_id] = pts
 

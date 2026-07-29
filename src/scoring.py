@@ -41,7 +41,13 @@ def _t(v):
 
 
 def fetch_rules() -> list[dict]:
-    """Flatten MFL positionRules into [{event, points, range, threshold}]."""
+    """Flatten MFL positionRules into [{event, points, lo, hi, threshold, positions}].
+
+    `positions` is the set of positions the rule applies to (empty = all).
+    Keeping it matters: different position groups define the same event with
+    different brackets (QB rushing yards vs RB rushing yards), so scoring a
+    player against the merged pile picks whichever bracket happens to sort
+    first. Pass a position to rules_for_position() to score correctly."""
     global _rules_cache, _rules_at
     if _rules_cache is not None and time.monotonic() - _rules_at < _RULES_TTL:
         return _rules_cache
@@ -51,6 +57,9 @@ def fetch_rules() -> list[dict]:
         raw = [raw]
     out = []
     for group in raw:
+        # MFL gives the group's positions as e.g. 'QB' or 'RB|WR|TE'.
+        pos_raw = _t(group.get("positions")) or ""
+        positions = {p.strip().upper() for p in pos_raw.split("|") if p.strip()}
         rl = group.get("rule", [])
         if isinstance(rl, dict):
             rl = [rl]
@@ -63,9 +72,23 @@ def fetch_rules() -> list[dict]:
                 "points": str(_t(r.get("points"))),
                 "lo": float(lo), "hi": float(hi or lo),
                 "threshold": float(thr) if thr is not None else None,
+                "positions": positions,
             })
     _rules_cache, _rules_at = out, time.monotonic()
     return out
+
+
+def rules_for_position(rules: list[dict], position: str | None) -> list[dict]:
+    """Subset of `rules` applying to `position` (rules with no position list
+    apply to everyone). Unknown/absent position returns the rules unchanged."""
+    if not position:
+        return rules
+    pos = position.strip().upper()
+    scoped = [r for r in rules
+              if not r.get("positions") or pos in r["positions"]]
+    # If the league doesn't scope rules by position at all, don't filter to
+    # nothing — fall back to the full set.
+    return scoped or rules
 
 
 def _eval_event(brackets: list[dict], amount: float) -> float:
@@ -118,10 +141,17 @@ def _kicker_points(proj: dict, by_event: dict) -> float:
     return pts
 
 
-def project_points(proj: dict, rules: list[dict] | None = None) -> float:
-    """League-scored projected points from a Sleeper projection row."""
+def project_points(proj: dict, rules: list[dict] | None = None,
+                   position: str | None = None) -> float:
+    """League-scored projected points from a SINGLE-GAME stat line.
+
+    MFL's brackets are per-game (the 100-yard rushing step, the 300-yard
+    passing bonus), so `proj` must be one game's stats. For a season-total
+    stat line use season_points() instead. Pass `position` so position-scoped
+    rules are applied correctly."""
     if rules is None:
         rules = fetch_rules()
+    rules = rules_for_position(rules, position)
     by_event: dict[str, list[dict]] = {}
     for r in rules:
         by_event.setdefault(r["event"], []).append(r)
@@ -135,3 +165,57 @@ def project_points(proj: dict, rules: list[dict] | None = None) -> float:
         total += _eval_event(brackets, amount)
     total += _kicker_points(proj, by_event)
     return round(total, 2)
+
+
+# Games in an NFL regular season — the divisor turning a season-total stat
+# line into the per-game line MFL's brackets expect.
+GAMES_PER_SEASON = 17
+
+
+def season_points(proj: dict, rules: list[dict] | None = None,
+                  position: str | None = None,
+                  games: int = GAMES_PER_SEASON) -> float:
+    """League-scored points for a SEASON-TOTAL stat line.
+
+    Scoring a season total directly against per-game brackets badly
+    understates players: step tables (rushing/receiving yards) clamp at their
+    last bracket, so 1,500 rushing yards would score the same as 100. Instead
+    score the implied per-game line and multiply back up.
+
+    Per-event ('*6') and pure-rate ('1/20') events are scale-invariant, so
+    this only changes the bracketed events — which is exactly the intent."""
+    if games <= 0:
+        return 0.0
+    per_game = {k: (v / games if isinstance(v, (int, float)) else v)
+                for k, v in proj.items()}
+    return round(project_points(per_game, rules, position) * games, 2)
+
+
+def explain_points(proj: dict, rules: list[dict] | None = None,
+                   position: str | None = None, season: bool = False,
+                   games: int = GAMES_PER_SEASON) -> list[dict]:
+    """Per-event breakdown of a scored stat line, for debugging scoring.
+
+    Returns [{event, stat, amount, points}] sorted by contribution. `season`
+    scores the line the way season_points does (per-game, scaled up)."""
+    if rules is None:
+        rules = fetch_rules()
+    scoped = rules_for_position(rules, position)
+    by_event: dict[str, list[dict]] = {}
+    for r in scoped:
+        by_event.setdefault(r["event"], []).append(r)
+
+    divisor = games if season else 1
+    rows = []
+    for event, brackets in by_event.items():
+        skey = EVENT_TO_SLEEPER.get(event)
+        if skey is None:
+            continue
+        amount = float(proj.get(skey, 0) or 0)
+        if not amount:
+            continue
+        pts = _eval_event(brackets, amount / divisor) * divisor
+        rows.append({"event": event, "stat": skey, "amount": amount,
+                     "points": round(pts, 2)})
+    rows.sort(key=lambda r: abs(r["points"]), reverse=True)
+    return rows
