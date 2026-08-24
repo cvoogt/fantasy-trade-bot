@@ -37,6 +37,25 @@ def build_player_values() -> pd.DataFrame:
     merged["salary"] = merged["salary"].fillna(0)
     merged["dynasty_value"] = merged["dynasty_value"].fillna(0)
 
+    # Age-weight dynasty values before deriving VPD/VOR, so those stay
+    # consistent with the values they're computed from. IDP players get their
+    # own age curve in idp_values.py, so they're not touched again here.
+    from src.aging import age_multiplier, age_weight, get_ages
+    weight = age_weight()
+    if weight > 0:
+        try:
+            ages = get_ages()
+        except Exception:
+            ages = {}
+        merged["age"] = merged["mfl_id"].map(ages)
+        merged["dynasty_value"] = merged.apply(
+            lambda r: r["dynasty_value"] * age_multiplier(
+                r["position"], r.get("age"), weight),
+            axis=1,
+        ).round(0)
+    else:
+        merged["age"] = None
+
     merged["value_per_dollar"] = merged.apply(
         lambda r: r["dynasty_value"] / r["salary"] if r["salary"] > 0 else 0, axis=1
     )
@@ -54,7 +73,7 @@ def build_player_values() -> pd.DataFrame:
 
     result = merged[
         ["mfl_id", "mfl_name", "fc_name", "position", "team", "dynasty_value",
-         "overall_rank", "salary", "value_per_dollar", "vor"]
+         "overall_rank", "salary", "value_per_dollar", "vor", "age"]
     ].sort_values("dynasty_value", ascending=False)
 
     return result
@@ -121,14 +140,18 @@ def make_pick_resolver(pick_map: dict[str, float] | None = None):
 
 
 def get_value_map(df: pd.DataFrame | None = None) -> dict[str, dict]:
-    """Return {mfl_id: {name, position, dynasty_value, salary, value_per_dollar, vor}}.
+    """Return {mfl_id: {name, position, dynasty_value, salary, value_per_dollar,
+    vor, age}}.
 
-    Offense comes from FantasyCalc; IDP players (which FantasyCalc doesn't
-    cover) are synthesized from league-scored production — see idp_values.py."""
+    Offense comes from FantasyCalc, age-weighted for dynasty (see aging.py);
+    IDP players (which FantasyCalc doesn't cover) are synthesized from
+    league-scored production, already age-adjusted — see idp_values.py."""
     if df is None:
         df = build_player_values()
     out: dict[str, dict] = {}
+    has_age = "age" in df.columns
     for _, r in df.iterrows():
+        age = r["age"] if has_age else None
         out[str(r["mfl_id"])] = {
             "name": r["mfl_name"],
             "position": r["position"],
@@ -136,6 +159,7 @@ def get_value_map(df: pd.DataFrame | None = None) -> dict[str, dict]:
             "salary": float(r["salary"]),
             "value_per_dollar": float(r["value_per_dollar"]),
             "vor": float(r["vor"]),
+            "age": int(age) if pd.notna(age) else None,
         }
     _augment_idp(out)
     return out
@@ -184,4 +208,5 @@ def _augment_idp(out: dict[str, dict]):
             "salary": sal,
             "value_per_dollar": val / sal if sal > 0 else 0.0,
             "vor": val - replacement[_IDP_GROUPS[v["position"]]],
+            "age": v.get("age"),
         }

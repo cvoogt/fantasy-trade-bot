@@ -11,6 +11,7 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 |---|---|
 | `/trade give: get:` | Score a trade. Accepts player names, MFL ids, or picks (`2026 1st`, `2026 pick 1.01`). Verdict from your perspective. |
 | `/waivers` | Top 5 waiver gems by value + suggested drop for each. |
+| `/nflstarters [position] [depth]` | Free agents who **start for their NFL team** — nobody in the league rosters them, but they're first on an NFL depth chart. Shows depth slot, projection, salary to sign, injury tag. `depth:2` includes backups. |
 | `/freeagent [position] [rookies]` | Top available free agents ranked by season projection, with next-week projection and salary. Optional position filter; `rookies` = `Y` (rookies only) / `n` (exclude rookies) / omit (both). |
 | `/lineup [week]` | Optimal starting lineup from weekly projections (IDP-aware), plus start/sit changes vs your submitted lineup. |
 | `/player name:` | Dynasty value, salary, value-per-dollar, VOR for any player (fuzzy name ok). |
@@ -66,7 +67,7 @@ channel where you set it.
 ```
 
 Schedulable commands: `gametime`, `waivers`, `roster`, `lineup`, `projections`,
-`freeagent`, `report`, `injury`. Times accept `11AM`, `7:30PM`, or 24-hour `13:00`; days
+`freeagent`, `report`, `injury`, `nflstarters`. Times accept `11AM`, `7:30PM`, or 24-hour `13:00`; days
 accept full names or abbreviations (`Sunday`, `Sun`). Schedules persist in
 SQLite, so they survive restarts.
 
@@ -139,6 +140,8 @@ daily value-refresh cron. `--purge` additionally deletes the install directory
 | `DISCORD_ALERT_CHANNEL_ID` | — | Channel for alerts, pings, weekly reports |
 | `DISCORD_WEBHOOK_URL` | — | Legacy webhook path (`python -m src.cli report`) |
 | `LOPSIDED_THRESHOLD` | `0.15` | Value gap that triggers a FLEECE flag |
+| `DYNASTY_AGE_WEIGHT` | `0.5` | Strength of the dynasty age curve (0 = off, 1 = full) |
+| `IDP_TOP_VALUE` | `4000` | Dynasty value assigned to the top-scoring IDP |
 | `HOMARR_PORT` | `5055` | Port for the Flask status tile |
 
 Values are read from the repo-root `.env` (the one next to the code, e.g.
@@ -161,7 +164,8 @@ supersedes it but both work.
 - **FantasyCalc** — dynasty values (1-QB): `api.fantasycalc.com/values/current?isDynasty=true&numQbs=1`. Cached daily.
 - **Sleeper** — weekly + season projections (all positions incl. full IDP stat
   lines) and near-real-time stats: `api.sleeper.app/v1`. Players dump cached
-  daily in SQLite.
+  daily in SQLite, and also supplies **ages** (dynasty age curve), **injury
+  statuses** (`/injury`), and **NFL depth charts** (`/nflstarters`).
 - **ESPN** (unofficial fantasy API) — second projection source for offense,
   blended 50/50 with Sleeper at the league-scored-points level. Projections
   cache refreshes every 6 hours (`proj_points` table).
@@ -208,6 +212,36 @@ raw stat line the source provided.
 If `explain` lists unmapped events that matter, add them to `EVENT_TO_SLEEPER`
 in `src/scoring.py`; the mapping is a plain dict from MFL event code to Sleeper
 stat key.
+
+## Dynasty age weighting
+
+A dynasty asset is worth its *remaining* career, so values are age-weighted with
+a position-aware curve (`src/aging.py`) before value-per-dollar and VOR are
+derived. Running backs fall off a cliff around 27; quarterbacks hold value into
+their 30s. Ages come from Sleeper's players dump, cached alongside the rest.
+
+FantasyCalc's market values already price age in to a degree, so applying a
+full-strength curve on top would double-count it. `DYNASTY_AGE_WEIGHT` blends
+the curve toward neutral:
+
+| Value | Effect |
+|---|---|
+| `0` | Age weighting off — raw FantasyCalc values |
+| `0.5` | **Default** — half-strength curve |
+| `1.0` | Full curve, strongly youth-tilted |
+
+At the default, three players FantasyCalc prices identically at 5,000 come out:
+
+```
+Young RB  RB  age 23  ->  5,750   (+15%)
+Old QB    QB  age 30  ->  5,000   (flat — QB curve peaks here)
+Old RB    RB  age 30  ->  3,750   (−25%)
+```
+
+`/player` shows each player's age and the adjustment applied, so you can see
+what the curve did. Players with no age on file are never penalised — they pass
+through unweighted. IDP values carry their own age curve (below) and aren't
+adjusted twice.
 
 ## IDP dynasty values
 

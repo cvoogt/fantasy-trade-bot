@@ -316,6 +316,43 @@ def build_gametime_embed() -> discord.Embed | str:
 
 
 # Commands that can be scheduled to auto-post. name -> zero-arg builder.
+def build_nflstarters_embed(position: str | None = None,
+                            max_depth: int = 1) -> discord.Embed | str:
+    from src.freeagents import starting_free_agents
+    from src.sleeper_api import get_nfl_state
+
+    value_map = _cache.get()
+    state = get_nfl_state()
+    season = int(state["season"])
+    wk = int(state.get("week") or 0)
+    week = wk if state.get("season_type") == "regular" and wk >= 1 else None
+
+    rows = starting_free_agents(position, max_depth, season, week, value_map)
+    if not rows:
+        return ("No NFL starters are sitting in the free-agent pool"
+                + (f" at {position.upper()}." if position else "."))
+
+    lines = []
+    for i, r in enumerate(rows[:15], 1):
+        slot = r["depth_slot"] or r["position"]
+        tag = f" · {r['injury']}" if r["injury"] else ""
+        proj = f" · {r['season_pts']:.0f} pts" if r["season_pts"] is not None else ""
+        wk_str = (f" · wk {r['week_pts']:.0f}" if r["week_pts"] is not None else "")
+        lines.append(
+            f"`{i:>2}.` **{r['name']}** ({r['position']}, {r['team']}) — "
+            f"{slot}{r['depth_order']}{proj}{wk_str} · ${r['salary']:,.0f}{tag}"
+        )
+
+    label = position.upper() if position else "All positions"
+    depth_note = "starters" if max_depth == 1 else f"depth ≤ {max_depth}"
+    embed = discord.Embed(
+        title=f"🏈 NFL {depth_note} on waivers — {label}",
+        description="\n".join(lines), color=EMBED_COLOR)
+    embed.set_footer(
+        text=f"{len(rows)} available · depth chart from Sleeper · $ = salary to sign")
+    return embed
+
+
 _STATUS_EMOJI = {
     "IR": "🔴", "PUP": "🔴", "DNR": "🔴", "Out": "🔴", "Sus": "🔴",
     "NA": "🟠", "COV": "🟠", "Doubtful": "🟠",
@@ -366,6 +403,7 @@ SCHEDULABLE = {
     "freeagent": build_freeagent_embed,
     "report": build_weekly_report_embed,
     "injury": build_injury_embed,
+    "nflstarters": build_nflstarters_embed,
 }
 
 
@@ -447,10 +485,20 @@ async def player_cmd(interaction: discord.Interaction, name: str):
         wp = week_proj.get(c["mfl_id"])
         if wp:
             proj_lines += f"\nProj (this week): **{wp['points']:.0f} pts**"
+
+        # Show the dynasty age adjustment when it moved the value.
+        age_note = ""
+        if info.get("age") is not None:
+            from src.aging import age_multiplier
+            mult = age_multiplier(info["position"], info["age"])
+            if abs(mult - 1.0) >= 0.01:
+                age_note = f" _(age {(mult - 1) * 100:+.0f}%)_"
+
         embed.add_field(
-            name=f"{c['fc_name']} ({info['position']}, {c['team']})",
+            name=(f"{c['fc_name']} ({info['position']}, {c['team']})"
+                  + (f" · {info['age']}yo" if info.get("age") else "")),
             value=(
-                f"Dynasty value: **{info['dynasty_value']:,.0f}**\n"
+                f"Dynasty value: **{info['dynasty_value']:,.0f}**{age_note}\n"
                 f"Salary: ${info['salary']:,.0f}\n"
                 f"Value/$: {info['value_per_dollar']:.4f}\n"
                 f"VOR: {info['vor']:,.0f}"
@@ -1003,6 +1051,22 @@ async def gametime_cmd(interaction: discord.Interaction, player: str | None = No
         return
 
     result = await asyncio.to_thread(build_gametime_embed)
+    if isinstance(result, discord.Embed):
+        await interaction.followup.send(embed=result)
+    else:
+        await interaction.followup.send(result)
+
+
+@bot.tree.command(name="nflstarters",
+                  description="Free agents who start for their NFL team")
+@app_commands.describe(
+    position="Filter to a position (QB/RB/WR/TE/PK/DT/DE/LB/CB/S)",
+    depth="Max depth-chart spot (1 = starters only, 2 = include backups)",
+)
+async def nflstarters_cmd(interaction: discord.Interaction,
+                          position: str | None = None, depth: int = 1):
+    await interaction.response.defer(thinking=True)
+    result = await asyncio.to_thread(build_nflstarters_embed, position, max(1, depth))
     if isinstance(result, discord.Embed):
         await interaction.followup.send(embed=result)
     else:

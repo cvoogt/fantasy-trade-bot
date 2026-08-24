@@ -12,9 +12,11 @@ from src.db import get_conn
 BASE = "https://api.sleeper.app/v1"
 _PLAYERS_TTL = timedelta(hours=24)
 
-# Fields worth keeping from the players dump (join keys + display).
+# Fields worth keeping from the players dump (join keys + display + dynasty
+# signals: age drives the value curve, depth chart tells us NFL starters).
 _KEEP = ("full_name", "position", "team", "espn_id", "rotowire_id",
-         "sportradar_id", "stats_id", "status")
+         "sportradar_id", "stats_id", "status", "age", "years_exp",
+         "depth_chart_order", "depth_chart_position")
 
 
 def _fetch_players_dump() -> dict:
@@ -37,12 +39,19 @@ def refresh_players_cache(force: bool = False) -> int:
     players = _fetch_players_dump()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute("DELETE FROM sleeper_players")
+    def _int_or_none(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
     for sid, p in players.items():
         conn.execute(
             """INSERT INTO sleeper_players
                (sleeper_id, name, position, team, espn_id, rotowire_id,
-                sportradar_id, stats_id, status, injury_status, fetched_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                sportradar_id, stats_id, status, injury_status, age,
+                years_exp, depth_chart_order, depth_chart_position, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 sid,
                 p.get("full_name") or "",
@@ -54,6 +63,10 @@ def refresh_players_cache(force: bool = False) -> int:
                 str(p["stats_id"]) if p.get("stats_id") else None,
                 p.get("status") or "",
                 p.get("injury_status") or "",
+                _int_or_none(p.get("age")),
+                _int_or_none(p.get("years_exp")),
+                _int_or_none(p.get("depth_chart_order")),
+                p.get("depth_chart_position") or "",
                 now,
             ),
         )
