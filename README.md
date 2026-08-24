@@ -286,6 +286,22 @@ trade scorer, `/tradefinder`, `/roster`, `/player`, and waiver logic. Roster
 depth is measured per lineup group (DT+DE, CB+S combined) to match how this
 league actually starts defenders.
 
+## Salaries vs the value map
+
+The value map covers players **FantasyCalc values** (offense) plus synthesized
+IDP. FantasyCalc doesn't rate kickers, so `PK` players are absent from it
+entirely — reading a salary off the value map showed every kicker as `$0`.
+
+Salaries always come from MFL instead, via `mfl_api.salary_map()`, which prices
+every player on the roster regardless of whether anyone assigns them a dynasty
+value. Use it for anything salary-related; reserve the value map for
+`dynasty_value` / `vor` / `value_per_dollar`.
+
+One consequence still stands: because kickers aren't in the value map, `/player`
+on a kicker reports no value data, and they carry no dynasty value in trades.
+That's mostly faithful to dynasty reality, but it does mean kicker salary shows
+up in `/salary` and `/cuts` while kicker *value* does not.
+
 ## Player ID crosswalks
 
 - **MFL ↔ FantasyCalc**: fuzzy name+position+team (normalized team abbreviations,

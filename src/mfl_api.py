@@ -69,6 +69,24 @@ def get_salaries() -> list[dict]:
     return data.get("salaries", {}).get("leagueUnit", {}).get("player", [])
 
 
+def salary_map() -> dict[str, float]:
+    """{mfl_id: salary} for every player MFL prices.
+
+    Prefer this over reading salaries off the value map: the value map only
+    covers players FantasyCalc values plus synthesized IDP, so kickers (and
+    anyone else FantasyCalc skips) are absent from it and would read as $0."""
+    out: dict[str, float] = {}
+    for p in get_salaries():
+        pid = p.get("id", "")
+        if not pid:
+            continue
+        try:
+            out[pid] = float(p.get("salary") or 0)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
 def get_free_agents() -> list[dict]:
     data = _get("freeAgents")
     return data.get("freeAgents", {}).get("leagueUnit", {}).get("player", [])

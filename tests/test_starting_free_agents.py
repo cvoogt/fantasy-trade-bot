@@ -13,6 +13,8 @@ FA_META = {
     "4": {"name": "Nofl Ned", "position": "TE", "team": "FA", "draft_year": "2021"},
     "5": {"name": "Unmapped Uma", "position": "QB", "team": "DAL", "draft_year": "2020"},
     "6": {"name": "Retired Rex", "position": "QB", "team": "LV", "draft_year": "2012"},
+    # Kickers aren't in FantasyCalc, so they never reach the value map.
+    "7": {"name": "Kicky Ken", "position": "PK", "team": "CIN", "draft_year": "2019"},
 }
 # combined_depth() is keyed by MFL id and carries per-source ranks.
 DEPTH = {
@@ -27,7 +29,12 @@ DEPTH = {
           "sources": 1, "sleeper_order": 1, "espn_order": None},
     "6": {"order": 1, "slot": "QB", "status": "Inactive", "team": "LV", "injury": "",
           "sources": 1, "sleeper_order": 1, "espn_order": None},
+    "7": {"order": 1, "slot": "PK", "status": "Active", "team": "CIN", "injury": "",
+          "sources": 2, "sleeper_order": 1, "espn_order": 1},
 }
+
+# MFL prices every player, including the kicker the value map has no entry for.
+SALARIES = {"1": 12.0, "2": 5.0, "3": 8.0, "7": 4.0}
 VALUE_MAP = {
     "1": {"salary": 12, "dynasty_value": 3200},
     "2": {"salary": 5, "dynasty_value": 900},
@@ -40,6 +47,7 @@ SEASON_PROJ = {"1": {"points": 180.0}, "3": {"points": 140.0}}
 def patched():
     with patch.object(freeagents, "_fa_meta", return_value=FA_META), \
          patch("src.depth_chart.combined_depth", return_value=DEPTH), \
+         patch.object(freeagents.mfl_api, "salary_map", return_value=SALARIES), \
          patch.object(freeagents, "get_projected_points",
                       side_effect=lambda s, w: SEASON_PROJ if w is None else {}):
         yield
@@ -72,7 +80,17 @@ def test_require_both_sources(patched):
     rows = freeagents.starting_free_agents(season=2025, value_map=VALUE_MAP,
                                            require_both_sources=True)
     names = [r["name"] for r in rows]
-    assert names == ["Starter Sam"]        # Sue is Sleeper-only
+    # Sue is Sleeper-only, so she drops out; Sam and the kicker are on both.
+    assert names == ["Starter Sam", "Kicky Ken"]
+
+
+def test_kicker_salary_comes_from_mfl_not_the_value_map(patched):
+    """Kickers aren't in FantasyCalc so the value map has no entry for them —
+    salary must come from MFL or they all read as $0."""
+    rows = freeagents.starting_free_agents(season=2025, value_map=VALUE_MAP)
+    ken = next(r for r in rows if r["name"] == "Kicky Ken")
+    assert ken["mfl_id"] not in VALUE_MAP     # genuinely absent from the map
+    assert ken["salary"] == 4.0               # still priced correctly
 
 
 def test_carries_per_source_ranks(patched):
@@ -100,7 +118,10 @@ def test_sorted_by_projection_with_unprojected_last(patched):
     assert [r["name"] for r in rows] == [
         "Starter Sam",   # 180 pts
         "Starter Sue",   # 140 pts
-        "Backup Bob",    # unprojected
+        # Both unprojected and both on two charts, so dynasty value breaks the
+        # tie — the kicker has none (FantasyCalc doesn't value kickers).
+        "Backup Bob",
+        "Kicky Ken",
     ]
 
 

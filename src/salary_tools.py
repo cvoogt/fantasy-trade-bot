@@ -16,13 +16,7 @@ def cap_amount() -> float:
 
 
 def _salaries() -> dict[str, float]:
-    out = {}
-    for p in mfl_api.get_salaries():
-        try:
-            out[p.get("id", "")] = float(p.get("salary") or 0)
-        except ValueError:
-            pass
-    return out
+    return mfl_api.salary_map()
 
 
 def team_salary_summary(fid: str, value_map: dict | None = None) -> dict:

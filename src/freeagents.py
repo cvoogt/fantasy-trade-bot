@@ -43,6 +43,9 @@ def top_free_agents(
         value_map = get_value_map()
 
     meta = _fa_meta()
+    # Salaries come straight from MFL — the value map has no kickers (see
+    # mfl_api.salary_map), so reading salary off it would show them as $0.
+    salaries = mfl_api.salary_map()
 
     season_proj = get_projected_points(season, None) if season else {}
     week_proj = get_projected_points(season, week) if season and week else {}
@@ -63,7 +66,6 @@ def top_free_agents(
             continue
 
         wp = week_proj.get(pid)
-        info = value_map.get(pid, {})
         rows.append({
             "mfl_id": pid,
             "name": m["name"],
@@ -71,7 +73,7 @@ def top_free_agents(
             "team": m["team"],
             "season_pts": sp["points"],
             "week_pts": wp["points"] if wp else None,
-            "salary": info.get("salary", 0.0),
+            "salary": salaries.get(pid, 0.0),
         })
 
     rows.sort(key=lambda r: r["season_pts"], reverse=True)
@@ -116,6 +118,7 @@ def starting_free_agents(
 
     meta = _fa_meta()
     depth = combined_depth(season, use_espn=use_espn)
+    salaries = mfl_api.salary_map()
 
     season_proj = get_projected_points(season, None) if season else {}
     week_proj = get_projected_points(season, week) if season and week else {}
@@ -154,7 +157,7 @@ def starting_free_agents(
             "injury": d["injury"],
             "season_pts": sp["points"] if sp else None,
             "week_pts": wp["points"] if wp else None,
-            "salary": info.get("salary", 0.0),
+            "salary": salaries.get(pid, 0.0),
             "dynasty_value": info.get("dynasty_value", 0.0),
         })
 
