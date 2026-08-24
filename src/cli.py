@@ -28,6 +28,8 @@ def main():
     tile_p = sub.add_parser("tile", help="Write/serve Homarr status tile")
     tile_p.add_argument("--serve", action="store_true", help="Run Flask server")
 
+    sub.add_parser("depth", help="Depth-chart source coverage (Sleeper vs ESPN)")
+
     exp_p = sub.add_parser("explain", help="Show how a player's projection is scored")
     exp_p.add_argument("player", help="Player name (fuzzy match ok)")
     exp_p.add_argument("--week", type=int, help="Score a week instead of the season")
@@ -100,6 +102,37 @@ def main():
             status = write_status()
             import json
             print(json.dumps(status, indent=2))
+
+    elif args.command == "depth":
+        init_db()
+        import collections
+        from src.depth_chart import sleeper_depth, get_espn_depth, combined_depth
+
+        sl = sleeper_depth()
+        sl_ranked = {k: v for k, v in sl.items() if v["order"] is not None}
+        print(f"Sleeper: {len(sl_ranked):,} ranked of {len(sl):,} players")
+
+        espn = get_espn_depth()
+        print(f"ESPN:    {len(espn):,} ranked")
+        if not espn:
+            print("  (empty — ESPN unreachable, or its response shape changed;")
+            print("   /nflstarters falls back to Sleeper alone)")
+
+        comb = combined_depth()
+        by_sources = collections.Counter(v["sources"] for v in comb.values())
+        print(f"\nCombined (crosswalked to MFL): {len(comb):,} players")
+        print(f"  both sources: {by_sources.get(2, 0):,}")
+        print(f"  one source:   {by_sources.get(1, 0):,}")
+
+        starters = {k: v for k, v in comb.items() if v["order"] == 1}
+        print(f"\nListed as starters (order 1): {len(starters):,}")
+        print("Slot labels seen:",
+              collections.Counter(v["slot"] for v in starters.values()).most_common(12))
+
+        disagree = [v for v in comb.values()
+                    if v["sleeper_order"] and v["espn_order"]
+                    and v["sleeper_order"] != v["espn_order"]]
+        print(f"\nSources disagree on rank for {len(disagree):,} players")
 
     elif args.command == "explain":
         init_db()

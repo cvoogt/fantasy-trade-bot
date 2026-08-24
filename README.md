@@ -11,7 +11,7 @@ starters scores a TD, picks off a pass, or recovers a fumble.
 |---|---|
 | `/trade give: get:` | Score a trade. Accepts player names, MFL ids, or picks (`2026 1st`, `2026 pick 1.01`). Verdict from your perspective. |
 | `/waivers` | Top 5 waiver gems by value + suggested drop for each. |
-| `/nflstarters [position] [depth]` | Free agents who **start for their NFL team** — nobody in the league rosters them, but they're first on an NFL depth chart. Shows depth slot, projection, salary to sign, injury tag. `depth:2` includes backups. |
+| `/nflstarters [position] [depth] [confirmed_only]` | Free agents who **start for their NFL team** — nobody in the league rosters them, but they're first on an NFL depth chart. Depth comes from Sleeper **and** ESPN; ✅ marks players both agree on. Shows depth slot, projection, salary to sign, injury tag. `depth:2` includes backups, `confirmed_only:True` requires both sources. |
 | `/freeagent [position] [rookies]` | Top available free agents ranked by season projection, with next-week projection and salary. Optional position filter; `rookies` = `Y` (rookies only) / `n` (exclude rookies) / omit (both). |
 | `/lineup [week]` | Optimal starting lineup from weekly projections (IDP-aware), plus start/sit changes vs your submitted lineup. |
 | `/player name:` | Dynasty value, salary, value-per-dollar, VOR for any player (fuzzy name ok). |
@@ -168,7 +168,9 @@ supersedes it but both work.
   statuses** (`/injury`), and **NFL depth charts** (`/nflstarters`).
 - **ESPN** (unofficial fantasy API) — second projection source for offense,
   blended 50/50 with Sleeper at the league-scored-points level. Projections
-  cache refreshes every 6 hours (`proj_points` table).
+  cache refreshes every 6 hours (`proj_points` table). Its core API also
+  supplies **NFL depth charts** (`espn_depth` table, refreshed daily), joined
+  to MFL by `espn_id`.
 
 ## Scoring model
 
@@ -212,6 +214,38 @@ raw stat line the source provided.
 If `explain` lists unmapped events that matter, add them to `EVENT_TO_SLEEPER`
 in `src/scoring.py`; the mapping is a plain dict from MFL event code to Sleeper
 stat key.
+
+## Depth charts
+
+`/nflstarters` needs to know who actually starts in the NFL. That comes from two
+independent sources, merged in `src/depth_chart.py`:
+
+- **Sleeper** — `depth_chart_order` / `depth_chart_position` from the players
+  dump. Free, already cached, one field lookup. It's one vendor's editorial
+  call and can go stale (notably in the off-season).
+- **ESPN** — real depth charts from the core API
+  (`sports.core.api.espn.com/.../teams/{id}/depthcharts`), keyed by ESPN athlete
+  id, which MFL already carries as `espn_id` — so the join is exact, no name
+  matching. One request per team, cached daily in the `espn_depth` table.
+
+A player's `order` is the better rank the two agree on, and `sources` counts how
+many placed them on a chart. ✅ in the output means both sources list them as
+starting; 〰️ means only one does. `confirmed_only:True` filters to the ✅ set.
+
+Everything fails closed: if ESPN is unreachable or changes its response shape,
+the parser returns nothing and the Sleeper-only view is served rather than the
+command breaking. To check what each source is actually giving you:
+
+```bash
+.venv/bin/python -m src.cli depth
+```
+
+It prints per-source coverage, how many players both sources corroborate, the
+slot labels in use, and how often the two disagree on rank.
+
+**Ourlads** is deliberately not used: it publishes no API, so it would mean
+scraping HTML — fragile against layout changes, and their terms don't invite
+it. The ESPN + Sleeper pair covers the same ground with stable, documented JSON.
 
 ## Dynasty age weighting
 

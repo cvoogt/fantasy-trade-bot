@@ -104,6 +104,13 @@ def init_db():
             PRIMARY KEY (season, week, sleeper_id, stat)
         );
 
+        CREATE TABLE IF NOT EXISTS espn_depth (
+            espn_id TEXT PRIMARY KEY,
+            slot TEXT,
+            depth_order INTEGER,
+            fetched_at TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS scheduled_jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             command TEXT,

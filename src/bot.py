@@ -316,8 +316,8 @@ def build_gametime_embed() -> discord.Embed | str:
 
 
 # Commands that can be scheduled to auto-post. name -> zero-arg builder.
-def build_nflstarters_embed(position: str | None = None,
-                            max_depth: int = 1) -> discord.Embed | str:
+def build_nflstarters_embed(position: str | None = None, max_depth: int = 1,
+                            confirmed_only: bool = False) -> discord.Embed | str:
     from src.freeagents import starting_free_agents
     from src.sleeper_api import get_nfl_state
 
@@ -327,7 +327,8 @@ def build_nflstarters_embed(position: str | None = None,
     wk = int(state.get("week") or 0)
     week = wk if state.get("season_type") == "regular" and wk >= 1 else None
 
-    rows = starting_free_agents(position, max_depth, season, week, value_map)
+    rows = starting_free_agents(position, max_depth, season, week, value_map,
+                                require_both_sources=confirmed_only)
     if not rows:
         return ("No NFL starters are sitting in the free-agent pool"
                 + (f" at {position.upper()}." if position else "."))
@@ -335,21 +336,25 @@ def build_nflstarters_embed(position: str | None = None,
     lines = []
     for i, r in enumerate(rows[:15], 1):
         slot = r["depth_slot"] or r["position"]
+        # ✅ = Sleeper and ESPN agree they're starting; ~ = only one source.
+        mark = "✅" if r["sources"] >= 2 else "〰️"
         tag = f" · {r['injury']}" if r["injury"] else ""
         proj = f" · {r['season_pts']:.0f} pts" if r["season_pts"] is not None else ""
         wk_str = (f" · wk {r['week_pts']:.0f}" if r["week_pts"] is not None else "")
         lines.append(
-            f"`{i:>2}.` **{r['name']}** ({r['position']}, {r['team']}) — "
+            f"`{i:>2}.` {mark} **{r['name']}** ({r['position']}, {r['team']}) — "
             f"{slot}{r['depth_order']}{proj}{wk_str} · ${r['salary']:,.0f}{tag}"
         )
 
     label = position.upper() if position else "All positions"
     depth_note = "starters" if max_depth == 1 else f"depth ≤ {max_depth}"
+    confirmed = sum(1 for r in rows if r["sources"] >= 2)
     embed = discord.Embed(
         title=f"🏈 NFL {depth_note} on waivers — {label}",
         description="\n".join(lines), color=EMBED_COLOR)
     embed.set_footer(
-        text=f"{len(rows)} available · depth chart from Sleeper · $ = salary to sign")
+        text=(f"{len(rows)} available · {confirmed} confirmed by both Sleeper "
+              f"and ESPN (✅) · $ = salary to sign"))
     return embed
 
 
@@ -1062,11 +1067,14 @@ async def gametime_cmd(interaction: discord.Interaction, player: str | None = No
 @app_commands.describe(
     position="Filter to a position (QB/RB/WR/TE/PK/DT/DE/LB/CB/S)",
     depth="Max depth-chart spot (1 = starters only, 2 = include backups)",
+    confirmed_only="Only players Sleeper AND ESPN both list as starting",
 )
 async def nflstarters_cmd(interaction: discord.Interaction,
-                          position: str | None = None, depth: int = 1):
+                          position: str | None = None, depth: int = 1,
+                          confirmed_only: bool = False):
     await interaction.response.defer(thinking=True)
-    result = await asyncio.to_thread(build_nflstarters_embed, position, max(1, depth))
+    result = await asyncio.to_thread(build_nflstarters_embed, position,
+                                     max(1, depth), confirmed_only)
     if isinstance(result, discord.Embed):
         await interaction.followup.send(embed=result)
     else:

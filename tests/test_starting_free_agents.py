@@ -12,15 +12,21 @@ FA_META = {
     "3": {"name": "Starter Sue", "position": "RB", "team": "NYJ", "draft_year": "2024"},
     "4": {"name": "Nofl Ned", "position": "TE", "team": "FA", "draft_year": "2021"},
     "5": {"name": "Unmapped Uma", "position": "QB", "team": "DAL", "draft_year": "2020"},
+    "6": {"name": "Retired Rex", "position": "QB", "team": "LV", "draft_year": "2012"},
 }
-SMAP = {"1": "s1", "2": "s2", "3": "s3", "4": "s4"}  # "5" has no Sleeper id
-
+# combined_depth() is keyed by MFL id and carries per-source ranks.
 DEPTH = {
-    "s1": {"order": 1, "slot": "WR", "status": "Active", "team": "KC", "injury": ""},
-    "s2": {"order": 2, "slot": "WR", "status": "Active", "team": "SF", "injury": ""},
-    "s3": {"order": 1, "slot": "RB", "status": "Active", "team": "NYJ",
-           "injury": "Questionable"},
-    "s4": {"order": 1, "slot": "TE", "status": "Active", "team": "", "injury": ""},
+    "1": {"order": 1, "slot": "WR", "status": "Active", "team": "KC", "injury": "",
+          "sources": 2, "sleeper_order": 1, "espn_order": 1},
+    "2": {"order": 2, "slot": "WR", "status": "Active", "team": "SF", "injury": "",
+          "sources": 2, "sleeper_order": 2, "espn_order": 2},
+    "3": {"order": 1, "slot": "RB", "status": "Active", "team": "NYJ",
+          "injury": "Questionable", "sources": 1, "sleeper_order": 1,
+          "espn_order": None},
+    "4": {"order": 1, "slot": "TE", "status": "Active", "team": "", "injury": "",
+          "sources": 1, "sleeper_order": 1, "espn_order": None},
+    "6": {"order": 1, "slot": "QB", "status": "Inactive", "team": "LV", "injury": "",
+          "sources": 1, "sleeper_order": 1, "espn_order": None},
 }
 VALUE_MAP = {
     "1": {"salary": 12, "dynasty_value": 3200},
@@ -33,8 +39,7 @@ SEASON_PROJ = {"1": {"points": 180.0}, "3": {"points": 140.0}}
 @pytest.fixture
 def patched():
     with patch.object(freeagents, "_fa_meta", return_value=FA_META), \
-         patch.object(freeagents, "_depth_chart", return_value=DEPTH), \
-         patch("src.sleeper_xwalk.get_sleeper_map", return_value=SMAP), \
+         patch("src.depth_chart.combined_depth", return_value=DEPTH), \
          patch.object(freeagents, "get_projected_points",
                       side_effect=lambda s, w: SEASON_PROJ if w is None else {}):
         yield
@@ -52,9 +57,29 @@ def test_excludes_players_with_no_nfl_team(patched):
     assert "Nofl Ned" not in [r["name"] for r in rows]
 
 
+def test_excludes_inactive_players(patched):
+    """A stale depth-chart row shouldn't surface a retired player."""
+    rows = freeagents.starting_free_agents(season=2025, value_map=VALUE_MAP)
+    assert "Retired Rex" not in [r["name"] for r in rows]
+
+
 def test_excludes_players_missing_from_the_crosswalk(patched):
     rows = freeagents.starting_free_agents(season=2025, value_map=VALUE_MAP)
     assert "Unmapped Uma" not in [r["name"] for r in rows]
+
+
+def test_require_both_sources(patched):
+    rows = freeagents.starting_free_agents(season=2025, value_map=VALUE_MAP,
+                                           require_both_sources=True)
+    names = [r["name"] for r in rows]
+    assert names == ["Starter Sam"]        # Sue is Sleeper-only
+
+
+def test_carries_per_source_ranks(patched):
+    rows = freeagents.starting_free_agents(season=2025, value_map=VALUE_MAP)
+    sam = next(r for r in rows if r["name"] == "Starter Sam")
+    assert sam["sources"] == 2
+    assert sam["sleeper_order"] == 1 and sam["espn_order"] == 1
 
 
 def test_max_depth_includes_backups(patched):
