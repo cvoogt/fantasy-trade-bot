@@ -133,15 +133,8 @@ def main():
         raw = mfl_api.get_nfl_schedule(week)
         print(f"nflSchedule games returned: {len(raw)}")
         if not raw:
-            print("  ^ EMPTY. /gametime cannot work. Raw response below:")
-            try:
-                payload = mfl_api._get("nflSchedule", {"W": str(week)})
-                err = mfl_api.error_text(payload)
-                if err:
-                    print(f"  MFL ERROR: {err}")
-                print(json.dumps(payload, indent=2)[:1500])
-            except Exception as e:
-                print(f"  request failed: {e}")
+            print("  ^ EMPTY — probing URL variants to find one MFL accepts:\n")
+            mfl_api.probe_schedule_hosts(week)
         else:
             print("  sample game:", json.dumps(raw[0], indent=2)[:500])
 

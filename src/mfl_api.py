@@ -55,9 +55,16 @@ def error_text(data: dict) -> str:
     return str(err or "")
 
 
+# MFL asks API clients to identify themselves; the default python-requests
+# agent gets throttled and, on some endpoints, refused outright.
+USER_AGENT = "fantasy-trade-bot/1.0 (+https://github.com/cvoogt/fantasy-trade-bot)"
+_HEADERS = {"User-Agent": USER_AGENT}
+
+
 def _request(endpoint: str, params: dict, host: str) -> dict:
     base = f"https://{host}/{league_year()}/export"
-    resp = requests.get(f"{base}?TYPE={endpoint}", params=params, timeout=30)
+    resp = requests.get(f"{base}?TYPE={endpoint}", params=params,
+                        headers=_HEADERS, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
@@ -85,6 +92,76 @@ def _get(endpoint: str, params: dict | None = None) -> dict:
         return data  # don't memoize an error — let the next call try again
     _memo[key] = (time.monotonic(), data)
     return data
+
+
+def probe_schedule_hosts(week: int | str = 1) -> list[dict]:
+    """Try every plausible nflSchedule URL and report which MFL accepts.
+
+    MFL's rules about which host serves which export aren't documented in a way
+    we can rely on, so when the schedule comes back empty this finds a working
+    combination empirically instead of guessing. Prints a table and returns the
+    variants tried."""
+    year = league_year()
+    league_host = f"{MFL_HOST}.myfantasyleague.com"
+    variants = [
+        ("league host, with L", league_host, {"W": str(week), "L": MFL_LEAGUE_ID}, True),
+        ("league host, no L", league_host, {"W": str(week)}, True),
+        ("api host, with L", API_HOST, {"W": str(week), "L": MFL_LEAGUE_ID}, True),
+        ("api host, no L", API_HOST, {"W": str(week)}, True),
+        ("api host, no L/no W", API_HOST, {}, True),
+        # Same as the two most likely, but without our User-Agent header, to
+        # show whether the UA is what MFL is reacting to.
+        ("api host, default UA", API_HOST, {"W": str(week), "L": MFL_LEAGUE_ID}, False),
+        ("league host, default UA", league_host, {"W": str(week), "L": MFL_LEAGUE_ID}, False),
+    ]
+
+    results = []
+    for label, host, extra, use_ua in variants:
+        params = {"JSON": "1", **extra}
+        url = f"https://{host}/{year}/export?TYPE=nflSchedule"
+        entry = {"label": label, "host": host, "params": params, "url": url}
+        try:
+            resp = requests.get(url, params=params,
+                                headers=_HEADERS if use_ua else None, timeout=30)
+            entry["status"] = resp.status_code
+            try:
+                data = resp.json()
+            except ValueError:
+                entry["error"] = f"non-JSON: {resp.text[:120]}"
+                data = {}
+            err = error_text(data)
+            if err:
+                entry["error"] = err
+            else:
+                sched = data.get("nflSchedule", {})
+                if isinstance(sched, list):
+                    sched = sched[0] if sched else {}
+                games = sched.get("matchup", []) if isinstance(sched, dict) else []
+                if isinstance(games, dict):
+                    games = [games]
+                entry["games"] = len(games)
+                if games:
+                    entry["sample_teams"] = [t.get("id") for t in games[0].get("team", [])]
+        except Exception as e:
+            entry["error"] = f"{type(e).__name__}: {e}"
+        results.append(entry)
+
+        status = entry.get("status", "-")
+        if entry.get("games"):
+            print(f"  ✅ {label:<22} HTTP {status}  {entry['games']} games  "
+                  f"teams={entry.get('sample_teams')}")
+        else:
+            print(f"  ❌ {label:<22} HTTP {status}  "
+                  f"{entry.get('error', '0 games, no error')[:90]}")
+        print(f"       {entry['url']}&" +
+              "&".join(f"{k}={v}" for k, v in params.items() if k != "JSON"))
+
+    working = [r for r in results if r.get("games")]
+    if working:
+        print(f"\n  -> Use: {working[0]['label']}")
+    else:
+        print("\n  -> No variant worked. Paste this output and the raw error.")
+    return results
 
 
 def get_players() -> list[dict]:
