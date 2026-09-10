@@ -162,12 +162,16 @@ supersedes it but both work.
   `/gametime`). `https://{host}.myfantasyleague.com/{year}/export` — league
   year auto-detected (MFL rolls leagues over each spring; pin with `MFL_YEAR`).
 
-  Some exports (`nflSchedule` among them) are served **only** from
-  `api.myfantasyleague.com`, not the league's own `www<N>` host. MFL rejects the
-  wrong host with **HTTP 200 and an error in the body**, so it reads as an empty
-  result unless you inspect the payload. `mfl_api` routes known endpoints to the
-  API host and, on seeing that error, learns the endpoint and retries — so a
-  newly restricted export fixes itself. Errors are never memoized.
+  Some exports describe the NFL rather than a league (`nflSchedule` among them).
+  Those go to `api.myfantasyleague.com` and **must not carry an `L` parameter** —
+  with `L`, MFL treats the request as league-scoped and refuses it on *either*
+  host. It answers **HTTP 200 with the error in the body**, so it reads as an
+  empty result unless you inspect the payload. `mfl_api` sends known global
+  exports without `L`, and on seeing that error drops `L`, retries against the
+  API host, and remembers — so an export MFL reclassifies later fixes itself.
+  Errors are never memoized. When the schedule comes back empty,
+  `python -m src.cli gametime` probes every URL variant and prints which one
+  MFL accepts.
 - **FantasyCalc** — dynasty values (1-QB): `api.fantasycalc.com/values/current?isDynasty=true&numQbs=1`. Cached daily.
 - **Sleeper** — weekly + season projections (all positions incl. full IDP stat
   lines) and near-real-time stats: `api.sleeper.app/v1`. Players dump cached
@@ -295,12 +299,13 @@ league actually starts defenders.
 
 ## Team abbreviations
 
-Every upstream spells teams differently — MFL's players export uses three-letter
-codes (`KCC`, `TBB`, `SFO`), while FantasyCalc, Sleeper and MFL's own schedule
-export use short forms (`KC`, `TB`, `SF`). Joining two sources on a raw
-abbreviation silently drops whichever teams disagree, which in `/gametime`
-showed up as players being reported on a bye. Normalize both sides through
-`src/teams.py` before matching.
+Upstreams spell teams differently. MFL uses three-letter codes throughout its
+own exports (`KCC`, `TBB`, `SFO`, `NEP`) — both the players list and the NFL
+schedule — while FantasyCalc, Sleeper and ESPN use short forms (`KC`, `TB`,
+`SF`, `NE`, and ESPN's `WSH`). Joining across sources on a raw abbreviation
+silently drops whichever teams disagree, so normalize both sides through
+`src/teams.py` first. Normalizing is idempotent, so it's safe to apply even
+where both sides already agree.
 
 If `/gametime` looks wrong, this diagnoses it end to end:
 

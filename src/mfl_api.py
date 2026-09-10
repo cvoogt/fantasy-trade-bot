@@ -38,13 +38,14 @@ _memo: dict[tuple, tuple[float, dict]] = {}
 _MEMO_TTL = 30.0
 
 
-# Some exports are served only from MFL's central API host, not the league's
-# own www<N> host. MFL signals this with HTTP 200 and an error in the body
-# ("This API request must go to api.myfantasyleague.com"), so it looks like an
-# empty result unless you read the payload. Seeded with the ones we know and
-# extended at runtime whenever MFL tells us.
+# Some exports describe the NFL rather than a league. They are served from
+# MFL's central API host and must NOT carry an L parameter: with L, MFL treats
+# the request as league-scoped and insists it go to the league's own host,
+# which then rejects it too. Either way it answers HTTP 200 with the error in
+# the body ("This API request must go to api.myfantasyleague.com"), so it reads
+# as an empty result unless you inspect the payload.
 API_HOST = "api.myfantasyleague.com"
-_api_host_endpoints: set[str] = {"nflSchedule"}
+_global_endpoints: set[str] = {"nflSchedule"}
 
 
 def error_text(data: dict) -> str:
@@ -71,21 +72,28 @@ def _request(endpoint: str, params: dict, host: str) -> dict:
 
 def _get(endpoint: str, params: dict | None = None) -> dict:
     import time
-    params = params or {}
-    params.update({"L": MFL_LEAGUE_ID, "JSON": "1"})
+    params = dict(params or {})
+    is_global = endpoint in _global_endpoints
+    if not is_global:
+        params["L"] = MFL_LEAGUE_ID
+    params["JSON"] = "1"
+
     key = (endpoint, tuple(sorted(params.items())))
     hit = _memo.get(key)
     if hit and time.monotonic() - hit[0] < _MEMO_TTL:
         return hit[1]
 
     league_host = f"{MFL_HOST}.myfantasyleague.com"
-    host = API_HOST if endpoint in _api_host_endpoints else league_host
+    host = API_HOST if is_global else league_host
     data = _request(endpoint, params, host)
 
-    # Wrong host: MFL says so in the body. Learn it and retry once, so any
-    # other endpoint MFL restricts later fixes itself.
-    if host != API_HOST and API_HOST in error_text(data):
-        _api_host_endpoints.add(endpoint)
+    # MFL naming the API host means this export isn't league-scoped. Drop the L
+    # parameter, retry against the API host, and remember — so any other export
+    # MFL reclassifies later fixes itself.
+    if not is_global and API_HOST in error_text(data):
+        _global_endpoints.add(endpoint)
+        params = {k: v for k, v in params.items() if k != "L"}
+        key = (endpoint, tuple(sorted(params.items())))
         data = _request(endpoint, params, API_HOST)
 
     if error_text(data):

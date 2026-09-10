@@ -26,8 +26,8 @@ SCHEDULE_OK = {"nflSchedule": {"week": "1", "matchup": [
 @pytest.fixture(autouse=True)
 def _reset():
     mfl_api._memo.clear()
-    mfl_api._api_host_endpoints.clear()
-    mfl_api._api_host_endpoints.add("nflSchedule")
+    mfl_api._global_endpoints.clear()
+    mfl_api._global_endpoints.add("nflSchedule")
     mfl_api._detected_year = 2026
     yield
     mfl_api._memo.clear()
@@ -40,10 +40,21 @@ def test_error_text_unwraps_mfl_shape():
     assert mfl_api.error_text({"error": "plain string"}) == "plain string"
 
 
-def test_nflschedule_goes_to_the_api_host():
+def test_nflschedule_goes_to_the_api_host_without_l():
+    """The L parameter is what MFL actually rejects: with it, MFL treats a
+    league-independent export as league-scoped and refuses it on either host."""
     with patch.object(mfl_api, "_request", return_value=SCHEDULE_OK) as req:
         mfl_api._get("nflSchedule", {"W": "1"})
-    assert req.call_args[0][2] == mfl_api.API_HOST
+    endpoint, params, host = req.call_args[0]
+    assert host == mfl_api.API_HOST
+    assert "L" not in params
+    assert params["W"] == "1"
+
+
+def test_league_endpoints_still_send_l():
+    with patch.object(mfl_api, "_request", return_value={"rosters": {}}) as req:
+        mfl_api._get("rosters")
+    assert req.call_args[0][1]["L"] == mfl_api.MFL_LEAGUE_ID
 
 
 def test_league_endpoints_still_use_the_league_host():
@@ -54,20 +65,24 @@ def test_league_endpoints_still_use_the_league_host():
 
 
 def test_wrong_host_error_triggers_retry_and_is_remembered():
-    """An endpoint MFL restricts later should fix itself after one retry."""
-    mfl_api._api_host_endpoints.discard("nflSchedule")
+    """An export MFL reclassifies later should fix itself after one retry."""
+    mfl_api._global_endpoints.discard("nflSchedule")
     calls = []
 
     def fake(endpoint, params, host):
-        calls.append(host)
-        return WRONG_HOST_ERROR if host != mfl_api.API_HOST else SCHEDULE_OK
+        calls.append((host, dict(params)))
+        # Mirrors MFL: anything carrying L is refused, wherever it is sent.
+        return WRONG_HOST_ERROR if "L" in params else SCHEDULE_OK
 
     with patch.object(mfl_api, "_request", side_effect=fake):
         data = mfl_api._get("nflSchedule", {"W": "1"})
 
-    assert len(calls) == 2 and calls[1] == mfl_api.API_HOST
+    assert len(calls) == 2
+    assert "L" in calls[0][1]                      # first try carried L
+    assert calls[1][0] == mfl_api.API_HOST
+    assert "L" not in calls[1][1]                  # retry dropped it
     assert data == SCHEDULE_OK
-    assert "nflSchedule" in mfl_api._api_host_endpoints  # learned
+    assert "nflSchedule" in mfl_api._global_endpoints  # learned
 
 
 def test_errors_are_not_memoized():
