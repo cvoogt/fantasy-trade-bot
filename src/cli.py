@@ -30,6 +30,9 @@ def main():
 
     sub.add_parser("depth", help="Depth-chart source coverage (Sleeper vs ESPN)")
 
+    gt_p = sub.add_parser("gametime", help="Diagnose /gametime schedule matching")
+    gt_p.add_argument("--week", type=int, help="Week to inspect (default: current)")
+
     exp_p = sub.add_parser("explain", help="Show how a player's projection is scored")
     exp_p.add_argument("player", help="Player name (fuzzy match ok)")
     exp_p.add_argument("--week", type=int, help="Score a week instead of the season")
@@ -102,6 +105,63 @@ def main():
             status = write_status()
             import json
             print(json.dumps(status, indent=2))
+
+    elif args.command == "gametime":
+        init_db()
+        import json
+        from src import mfl_api
+        from src.gametime import team_slots, _starter_meta
+        from src.teams import normalize as norm_team
+        from src.sleeper_api import get_nfl_state
+        from src.config import MFL_FRANCHISE_ID
+
+        print(f"MFL league year : {mfl_api.league_year()}")
+        try:
+            state = get_nfl_state()
+            print(f"Sleeper state   : season={state.get('season')} "
+                  f"week={state.get('week')} type={state.get('season_type')}")
+        except Exception as e:
+            print(f"Sleeper state   : FAILED ({e})")
+            state = {}
+
+        week = args.week
+        if week is None:
+            wk = int(state.get("week") or 0)
+            week = wk if state.get("season_type") == "regular" and wk >= 1 else 1
+        print(f"Week inspected  : {week}\n")
+
+        raw = mfl_api.get_nfl_schedule(week)
+        print(f"nflSchedule games returned: {len(raw)}")
+        if not raw:
+            print("  ^ EMPTY. /gametime cannot work. Raw response below:")
+            try:
+                print(json.dumps(mfl_api._get("nflSchedule", {"W": str(week)}),
+                                 indent=2)[:1500])
+            except Exception as e:
+                print(f"  request failed: {e}")
+        else:
+            print("  sample game:", json.dumps(raw[0], indent=2)[:500])
+
+        slots = team_slots(week)
+        print(f"\nTeams in schedule ({len(slots)}): {', '.join(sorted(slots))}")
+
+        starters = _starter_meta(MFL_FRANCHISE_ID, week)
+        print(f"\nStarters resolved: {len(starters)}")
+        raw_codes = sorted({s['team'] for s in starters if s['team']})
+        print(f"Starter team codes (raw)       : {', '.join(raw_codes)}")
+        print("Starter team codes (normalized): "
+              f"{', '.join(sorted({norm_team(c) for c in raw_codes}))}")
+
+        matched = [s for s in starters if norm_team(s["team"]) in slots]
+        unmatched = [s for s in starters if norm_team(s["team"]) not in slots]
+        print(f"\nMatched to a game : {len(matched)}")
+        print(f"Unmatched (BYE)   : {len(unmatched)}")
+        for s in unmatched[:15]:
+            print(f"   {s['name']:<26} team={s['team']!r} "
+                  f"-> normalized {norm_team(s['team'])!r}")
+        if unmatched and slots:
+            print("\nIf these teams DO play this week, the two MFL exports")
+            print("disagree on team codes — add the mapping to src/teams.py")
 
     elif args.command == "depth":
         init_db()

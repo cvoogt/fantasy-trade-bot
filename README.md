@@ -286,6 +286,27 @@ trade scorer, `/tradefinder`, `/roster`, `/player`, and waiver logic. Roster
 depth is measured per lineup group (DT+DE, CB+S combined) to match how this
 league actually starts defenders.
 
+## Team abbreviations
+
+Every upstream spells teams differently — MFL's players export uses three-letter
+codes (`KCC`, `TBB`, `SFO`), while FantasyCalc, Sleeper and MFL's own schedule
+export use short forms (`KC`, `TB`, `SF`). Joining two sources on a raw
+abbreviation silently drops whichever teams disagree, which in `/gametime`
+showed up as players being reported on a bye. Normalize both sides through
+`src/teams.py` before matching.
+
+If `/gametime` looks wrong, this diagnoses it end to end:
+
+```bash
+.venv/bin/python -m src.cli gametime          # current week
+.venv/bin/python -m src.cli gametime --week 3
+```
+
+It prints the resolved MFL league year, the week it inspected, how many games
+the schedule returned (with the raw response if empty), the team codes on both
+sides raw and normalized, and every starter that failed to match. An empty
+schedule is now reported as such rather than rendering as "everyone on BYE".
+
 ## Salaries vs the value map
 
 The value map covers players **FantasyCalc values** (offense) plus synthesized

@@ -130,9 +130,22 @@ def get_nfl_schedule(week: str | int | None = None) -> list[dict]:
     two teams (with `id` abbreviation and `isHome`). Omit `week` for the
     current week."""
     params = {"W": str(week)} if week is not None else {}
-    games = _get("nflSchedule", params).get("nflSchedule", {}).get("matchup", [])
-    if isinstance(games, dict):
-        games = [games]
+    sched = _get("nflSchedule", params).get("nflSchedule", {})
+    # Asking for a single week returns one object; omitting W (or some MFL
+    # hosts) returns a list of weeks. Flatten either into a list of games.
+    if isinstance(sched, list):
+        weeks = sched
+    else:
+        weeks = [sched]
+
+    games = []
+    for wk in weeks:
+        if not isinstance(wk, dict):
+            continue
+        matchups = wk.get("matchup", [])
+        if isinstance(matchups, dict):
+            matchups = [matchups]
+        games.extend(m for m in matchups if isinstance(m, dict))
     return games
 
 

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from src.config import MFL_FRANCHISE_ID
 from src import mfl_api
+from src.teams import normalize as normalize_team
 
 # Weekly game slots in chronological order — used to sort output.
 SLOT_ORDER = ["Thu Night", "Fri", "Sat", "Sun AM", "Sun Early",
@@ -68,7 +69,11 @@ def fmt_kickoff(ts: int) -> str:
 
 
 def team_slots(week: int | None = None) -> dict[str, dict]:
-    """{TEAM: {slot, kickoff, opp, home}} for the week from MFL nflSchedule."""
+    """{TEAM: {slot, kickoff, opp, home}} for the week from MFL nflSchedule.
+
+    Keys are normalized team codes (see teams.py) — MFL's players export and
+    its schedule export don't always spell teams the same way, and an
+    unnormalized join silently turns every mismatch into a phantom bye."""
     out: dict[str, dict] = {}
     for g in mfl_api.get_nfl_schedule(week):
         try:
@@ -78,10 +83,10 @@ def team_slots(week: int | None = None) -> dict[str, dict]:
         teams = g.get("team", [])
         if isinstance(teams, dict):
             teams = [teams]
-        ids = [t.get("id", "") for t in teams]
+        ids = [normalize_team(t.get("id", "")) for t in teams]
         slot = slot_for(ts)
         for t in teams:
-            tid = t.get("id", "")
+            tid = normalize_team(t.get("id", ""))
             if not tid:
                 continue
             opp = next((x for x in ids if x != tid), "")
@@ -134,19 +139,28 @@ def starters_by_slot(franchise_id: str = MFL_FRANCHISE_ID,
                      week: int | None = None) -> dict:
     """Group my starters by NFL game slot for the week.
 
-    Returns {'week', 'slots': [{'slot','kickoff','players':[...]}], 'bye': [...]}
-    with slots in chronological order and bye = starters with no game this week.
-    Each player carries name/position/team plus opp/home/kickoff."""
+    Returns {'week', 'slots': [...], 'bye': [...], 'schedule_teams',
+    'unmatched_teams'} with slots in chronological order and bye = starters
+    with no game this week. Each player carries name/position/team plus
+    opp/home/kickoff.
+
+    `schedule_teams` is how many teams the schedule actually returned — 0 means
+    MFL gave us nothing, and callers must say so rather than reporting every
+    starter as being on a bye. `unmatched_teams` lists starter team codes that
+    the schedule didn't cover, which is the signature of a code mismatch."""
     ts_map = team_slots(week)
     starters = _starter_meta(franchise_id, week)
 
     buckets: dict[str, list] = {}
     slot_kick: dict[str, int] = {}
     bye: list[dict] = []
+    unmatched: set[str] = set()
     for s in starters:
-        g = ts_map.get(s["team"])
+        g = ts_map.get(normalize_team(s["team"]))
         if not g:
             bye.append(s)
+            if s["team"]:
+                unmatched.add(s["team"])
             continue
         buckets.setdefault(g["slot"], []).append({
             **s, "opp": g["opp"], "home": g["home"], "kickoff": g["kickoff"],
@@ -162,7 +176,9 @@ def starters_by_slot(franchise_id: str = MFL_FRANCHISE_ID,
         players = sorted(buckets[slot], key=lambda p: p["position"])
         slots.append({"slot": slot, "kickoff": slot_kick.get(slot, 0),
                       "players": players})
-    return {"week": week, "slots": slots, "bye": bye}
+    return {"week": week, "slots": slots, "bye": bye,
+            "schedule_teams": len(ts_map),
+            "unmatched_teams": sorted(unmatched)}
 
 
 def player_game_time(name: str, team: str, week: int | None = None) -> dict:
@@ -170,9 +186,13 @@ def player_game_time(name: str, team: str, week: int | None = None) -> dict:
 
     Returns {'name','team','status', ...}. status: 'ok' (with slot/kickoff/
     opp/home), 'bye' (team not playing), or 'no_team' (no NFL team listed)."""
-    if not team:
+    if not normalize_team(team):
         return {"name": name, "team": team, "status": "no_team"}
-    g = team_slots(week).get(team)
+    slots = team_slots(week)
+    if not slots:
+        # No schedule at all — don't pass this off as a bye.
+        return {"name": name, "team": team, "status": "no_schedule"}
+    g = slots.get(normalize_team(team))
     if not g:
         return {"name": name, "team": team, "status": "bye"}
     return {"name": name, "team": team, "status": "ok", "slot": g["slot"],

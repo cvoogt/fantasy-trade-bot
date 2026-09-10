@@ -100,6 +100,58 @@ def test_starters_by_slot_uses_only_the_lineup():
     assert sorted(everyone) == ["Bye, Guy", "Hurts, Jalen"]
 
 
+def test_mismatched_team_codes_still_match():
+    """MFL's players export says 'KCC' while the schedule says 'KC' — that must
+    not turn into a phantom bye."""
+    sched = [{"kickoff": str(SUN_EARLY), "team": [
+        {"id": "KC", "isHome": "1"}, {"id": "LAC", "isHome": "0"}]}]
+    players = [{"id": "1", "name": "Kelce, Travis", "position": "TE", "team": "KCC"}]
+    with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=sched), \
+         patch.object(gametime.mfl_api, "get_players", return_value=players), \
+         patch("src.lineup.lineup_advice", return_value=_advice(["1"])):
+        data = gametime.starters_by_slot("0002", 1)
+
+    assert data["bye"] == []
+    assert data["slots"][0]["players"][0]["name"] == "Kelce, Travis"
+
+
+def test_empty_schedule_is_flagged_not_reported_as_bye():
+    """An empty schedule must be distinguishable from a real bye week."""
+    with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=[]), \
+         patch.object(gametime.mfl_api, "get_players", return_value=_players()), \
+         patch("src.lineup.lineup_advice", return_value=_advice(["1", "2"])):
+        data = gametime.starters_by_slot("0002", 1)
+
+    assert data["schedule_teams"] == 0      # the tell: no schedule at all
+    assert len(data["bye"]) == 2            # players still bucketed
+    assert data["slots"] == []
+
+
+def test_unmatched_teams_are_reported():
+    """Partial mismatches surface the offending codes for diagnosis."""
+    sched = [{"kickoff": str(SUN_EARLY), "team": [
+        {"id": "ATL", "isHome": "0"}, {"id": "NO", "isHome": "1"}]}]
+    with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=sched), \
+         patch.object(gametime.mfl_api, "get_players", return_value=_players()), \
+         patch("src.lineup.lineup_advice",
+               return_value=_advice(["1", "2", "3"])):
+        data = gametime.starters_by_slot("0002", 1)
+
+    assert data["schedule_teams"] == 2
+    # PHI and KC aren't on this schedule; ATL (Bijan) is.
+    assert set(data["unmatched_teams"]) == {"PHI", "KC"}
+
+
+def test_player_lookup_distinguishes_no_schedule_from_bye():
+    with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=[]):
+        res = gametime.player_game_time("Anyone", "KC", 1)
+    assert res["status"] == "no_schedule"
+
+    with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=_schedule()):
+        res = gametime.player_game_time("Anyone", "CLE", 1)
+    assert res["status"] == "bye"          # schedule exists, team isn't on it
+
+
 def test_player_game_time_ok_bye_and_no_team():
     with patch.object(gametime.mfl_api, "get_nfl_schedule", return_value=_schedule()):
         ok = gametime.player_game_time("Bijan Robinson", "ATL", 1)
@@ -121,3 +173,40 @@ def test_slots_stay_eastern_anchored():
     # Display is CT, but a 1pm ET game must still classify as the early Sunday
     # window (not "Sun AM" off a noon-CT read).
     assert gametime.slot_for(SUN_EARLY) == "Sun Early"
+
+
+# ---- MFL response-shape tolerance ----
+
+def _mfl_returns(payload):
+    from unittest.mock import patch as _p
+    return _p.object(gametime.mfl_api, "_get", return_value=payload)
+
+
+def test_schedule_accepts_single_week_object():
+    payload = {"nflSchedule": {"week": "1", "matchup": [
+        {"kickoff": str(SUN_EARLY), "team": [{"id": "ATL"}, {"id": "NO"}]}]}}
+    with _mfl_returns(payload):
+        assert len(gametime.mfl_api.get_nfl_schedule(1)) == 1
+
+
+def test_schedule_accepts_list_of_weeks():
+    """Some MFL responses return a list of weeks rather than one object."""
+    payload = {"nflSchedule": [
+        {"week": "1", "matchup": [{"kickoff": "1", "team": [{"id": "ATL"}]}]},
+        {"week": "2", "matchup": [{"kickoff": "2", "team": [{"id": "NO"}]}]},
+    ]}
+    with _mfl_returns(payload):
+        assert len(gametime.mfl_api.get_nfl_schedule()) == 2
+
+
+def test_schedule_accepts_single_matchup_dict():
+    payload = {"nflSchedule": {"matchup": {"kickoff": "1", "team": [{"id": "ATL"}]}}}
+    with _mfl_returns(payload):
+        assert len(gametime.mfl_api.get_nfl_schedule(1)) == 1
+
+
+def test_schedule_tolerates_junk():
+    for payload in ({}, {"nflSchedule": {}}, {"nflSchedule": None},
+                    {"nflSchedule": {"matchup": []}}, {"nflSchedule": ["junk"]}):
+        with _mfl_returns(payload):
+            assert gametime.mfl_api.get_nfl_schedule(1) == []

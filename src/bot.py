@@ -291,6 +291,14 @@ def build_gametime_embed() -> discord.Embed | str:
     if not slots and not bye:
         return "No starters or NFL schedule found for this week yet."
 
+    # An empty schedule would otherwise render as "everyone on BYE", which is
+    # wrong and looks like real data. Say what actually happened instead.
+    if not data["schedule_teams"]:
+        return (f"⚠️ MFL returned no NFL schedule for **week {week}**, so I "
+                f"can't tell you when anyone plays.\nThis isn't a bye week — "
+                f"run `python -m src.cli gametime` on the bot host to see what "
+                f"the schedule endpoint is returning.")
+
     total = sum(len(s["players"]) for s in slots) + len(bye)
     chart_rows = [(s["slot"], len(s["players"])) for s in slots]
     if bye:
@@ -311,7 +319,13 @@ def build_gametime_embed() -> discord.Embed | str:
     foot = "Starting lineup grouped by NFL game slot · kickoffs in CT"
     if not in_season:
         foot = "Off-season preview (upcoming Week 1) · " + foot
-    embed.set_footer(text=foot)
+    # Teams the schedule didn't cover are a code mismatch, not a bye.
+    unmatched = data.get("unmatched_teams") or []
+    if unmatched and len(unmatched) > 2:
+        foot = (f"⚠️ {len(unmatched)} team(s) not found in the schedule "
+                f"({', '.join(unmatched[:6])}) — shown as BYE but may be a "
+                f"data mismatch · ") + foot
+    embed.set_footer(text=foot[:2048])
     return embed
 
 
