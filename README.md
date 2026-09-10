@@ -161,6 +161,13 @@ supersedes it but both work.
   scoring rules, and the NFL game schedule (`nflSchedule`, kickoff times — powers
   `/gametime`). `https://{host}.myfantasyleague.com/{year}/export` — league
   year auto-detected (MFL rolls leagues over each spring; pin with `MFL_YEAR`).
+
+  Some exports (`nflSchedule` among them) are served **only** from
+  `api.myfantasyleague.com`, not the league's own `www<N>` host. MFL rejects the
+  wrong host with **HTTP 200 and an error in the body**, so it reads as an empty
+  result unless you inspect the payload. `mfl_api` routes known endpoints to the
+  API host and, on seeing that error, learns the endpoint and retries — so a
+  newly restricted export fixes itself. Errors are never memoized.
 - **FantasyCalc** — dynasty values (1-QB): `api.fantasycalc.com/values/current?isDynasty=true&numQbs=1`. Cached daily.
 - **Sleeper** — weekly + season projections (all positions incl. full IDP stat
   lines) and near-real-time stats: `api.sleeper.app/v1`. Players dump cached

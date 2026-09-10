@@ -135,8 +135,11 @@ def main():
         if not raw:
             print("  ^ EMPTY. /gametime cannot work. Raw response below:")
             try:
-                print(json.dumps(mfl_api._get("nflSchedule", {"W": str(week)}),
-                                 indent=2)[:1500])
+                payload = mfl_api._get("nflSchedule", {"W": str(week)})
+                err = mfl_api.error_text(payload)
+                if err:
+                    print(f"  MFL ERROR: {err}")
+                print(json.dumps(payload, indent=2)[:1500])
             except Exception as e:
                 print(f"  request failed: {e}")
         else:

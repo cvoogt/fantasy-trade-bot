@@ -38,6 +38,30 @@ _memo: dict[tuple, tuple[float, dict]] = {}
 _MEMO_TTL = 30.0
 
 
+# Some exports are served only from MFL's central API host, not the league's
+# own www<N> host. MFL signals this with HTTP 200 and an error in the body
+# ("This API request must go to api.myfantasyleague.com"), so it looks like an
+# empty result unless you read the payload. Seeded with the ones we know and
+# extended at runtime whenever MFL tells us.
+API_HOST = "api.myfantasyleague.com"
+_api_host_endpoints: set[str] = {"nflSchedule"}
+
+
+def error_text(data: dict) -> str:
+    """MFL's in-body error message, '' when the response is fine."""
+    err = data.get("error") if isinstance(data, dict) else None
+    if isinstance(err, dict):
+        err = err.get("$t", "")
+    return str(err or "")
+
+
+def _request(endpoint: str, params: dict, host: str) -> dict:
+    base = f"https://{host}/{league_year()}/export"
+    resp = requests.get(f"{base}?TYPE={endpoint}", params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _get(endpoint: str, params: dict | None = None) -> dict:
     import time
     params = params or {}
@@ -46,10 +70,19 @@ def _get(endpoint: str, params: dict | None = None) -> dict:
     hit = _memo.get(key)
     if hit and time.monotonic() - hit[0] < _MEMO_TTL:
         return hit[1]
-    base = f"https://{MFL_HOST}.myfantasyleague.com/{league_year()}/export"
-    resp = requests.get(f"{base}?TYPE={endpoint}", params=params, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+
+    league_host = f"{MFL_HOST}.myfantasyleague.com"
+    host = API_HOST if endpoint in _api_host_endpoints else league_host
+    data = _request(endpoint, params, host)
+
+    # Wrong host: MFL says so in the body. Learn it and retry once, so any
+    # other endpoint MFL restricts later fixes itself.
+    if host != API_HOST and API_HOST in error_text(data):
+        _api_host_endpoints.add(endpoint)
+        data = _request(endpoint, params, API_HOST)
+
+    if error_text(data):
+        return data  # don't memoize an error — let the next call try again
     _memo[key] = (time.monotonic(), data)
     return data
 
