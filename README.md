@@ -36,10 +36,17 @@ starters scores a TD, picks off a pass, or recovers a fumble.
   command finishes, so you get a quick visual confirmation it ran (needs the
   *Add Reactions* permission in the channel).
 - **Live scoring alerts** — during game windows the bot polls every 60s and posts
-  when one of your starters logs a passing/rushing/receiving/ST TD, an
-  interception (`idp_int`), a fumble recovery (`idp_fum_rec`), or a defensive TD.
-  Idempotent across restarts (SQLite snapshots); first poll of a week is a
-  silent baseline.
+  for your starters:
+  - every TD (passing, rushing, receiving, kick return, punt return, defensive)
+  - interceptions thrown, two-point conversions
+  - takeaways (INT, fumble recovery) with return yardage
+  - milestones: 7/10 solo tackles, 7/10 assists, 100/150/200/250 rushing or
+    receiving yards, 300/400 passing yards, 25 completions
+  - big plays: 30+ yard receptions and runs (30-39 yard runs are caught when
+    they become the player's longest of the game — Sleeper only buckets 40+)
+
+  Idempotent across restarts (SQLite snapshots); the first poll of a week, or
+  of a newly added stat, is a silent baseline.
 - **On-the-clock draft ping** — `@here` with the top-5 best available when it's
   your pick in the rookie draft. Never re-pings the same pick.
 - **Lopsided trade watch** — hourly league scan; trades with a value gap ≥ 15%

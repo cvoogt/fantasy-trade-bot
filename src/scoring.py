@@ -20,7 +20,8 @@ EVENT_TO_SLEEPER = {
     "RY": "rush_yd", "RS": "rush_td", "R2": "rush_2pt",
     "CC": "rec", "CY": "rec_yd", "RC": "rec_td", "C2": "rec_2pt",
     "FU": "fum_lost",
-    "TK": "idp_tkl", "AS": "idp_tkl_ast", "SK": "idp_sack",
+    # MFL TK is SOLO tackles; Sleeper's idp_tkl is solo+assisted combined
+    "TK": "idp_tkl_solo", "AS": "idp_tkl_ast", "SK": "idp_sack",
     "IC": "idp_int", "ICY": "idp_int_ret_yd",
     "FC": "idp_fum_rec", "FCY": "idp_fum_ret_yd", "FF": "idp_ff",
     "PD": "idp_pass_def", "TKL": "idp_tkl_loss", "SF": "idp_saf",

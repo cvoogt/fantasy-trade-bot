@@ -1240,8 +1240,7 @@ async def live_event_poll():
             log.warning("Live events detected but no alert channel configured.")
             return
         for ev in events:
-            nth = f" — #{ev.total} on the day" if ev.total > 1 else ""
-            await ch.send(f"{ev.emoji} **{ev.player_name}** {ev.label}!{nth}")
+            await ch.send(ev.text)
     except Exception:
         log.exception("live_event_poll failed")
 

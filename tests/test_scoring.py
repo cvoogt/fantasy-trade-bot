@@ -75,6 +75,16 @@ def test_project_points_sums_events():
     assert project_points(proj, rules) == 24.5
 
 
+def test_solo_tackles_not_double_counted_with_assists():
+    # MFL TK = solo tackles. Sleeper idp_tkl = solo + assists combined.
+    rules = [
+        {"event": "TK", "points": "*1", "lo": 0, "hi": 99, "threshold": None},
+        {"event": "AS", "points": "*0.5", "lo": 0, "hi": 99, "threshold": None},
+    ]
+    proj = {"idp_tkl": 10, "idp_tkl_solo": 6, "idp_tkl_ast": 4}
+    assert project_points(proj, rules) == 8.0  # 6*1 + 4*0.5
+
+
 def test_project_points_ignores_unmapped():
     rules = [{"event": "ZZ", "points": "*100", "lo": 0, "hi": 99, "threshold": None}]
     assert project_points({"pass_yd": 300}, rules) == 0.0
