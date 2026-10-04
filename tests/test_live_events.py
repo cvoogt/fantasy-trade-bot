@@ -161,3 +161,25 @@ def test_multi_td_burst_reports_delta():
     events = poll_events(SEASON, WEEK, watched=WATCHED, stats=burst)
     assert len(events) == 1
     assert events[0].delta == 2 and events[0].total == 4
+
+
+def test_sack_alerts_with_running_total():
+    prev = {("s2", "idp_sack"): 1.0}
+    events = detect_events(prev, {"s2": {"idp_sack": 2.0}}, WATCHED)
+    assert [e.text for e in events] == ["🔥 **Frankie Luvu** sack! (2 on the day)"]
+
+
+def test_half_sack_alerts():
+    prev = {("s2", "idp_sack"): 0.0}
+    events = detect_events(prev, {"s2": {"idp_sack": 0.5}}, WATCHED)
+    assert len(events) == 1 and events[0].delta == 0.5
+    assert events[0].text == "🔥 **Frankie Luvu** 0.5 sack (shared)!"
+
+
+def test_sack_baseline_and_no_repeat():
+    _clear()
+    stats = {"s2": {"idp_sack": 1.0}}
+    assert poll_events(SEASON, WEEK, watched=WATCHED, stats=stats) == []
+    events = poll_events(SEASON, WEEK, watched=WATCHED, stats={"s2": {"idp_sack": 1.5}})
+    assert [e.stat for e in events] == ["idp_sack"]
+    assert poll_events(SEASON, WEEK, watched=WATCHED, stats={"s2": {"idp_sack": 1.5}}) == []

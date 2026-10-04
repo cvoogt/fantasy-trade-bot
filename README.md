@@ -40,6 +40,7 @@ starters scores a TD, picks off a pass, or recovers a fumble.
   - every TD (passing, rushing, receiving, kick return, punt return, defensive)
   - interceptions thrown, two-point conversions
   - takeaways (INT, fumble recovery) with return yardage
+  - sacks, including half sacks, with the running total for the day
   - milestones: 7/10 solo tackles, 7/10 assists, 100/150/200/250 rushing or
     receiving yards, 300/400 passing yards, 25 completions
   - big plays: 30+ yard receptions and runs (30-39 yard runs are caught when

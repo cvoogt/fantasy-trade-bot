@@ -3,7 +3,7 @@
 Polls Sleeper weekly stats during game windows, diffs against SQLite snapshots
 (live_stat_snapshots), and emits three kinds of events:
 
-  - count events: each new TD, INT thrown, takeaway, 2-pt conversion, return TD
+  - count events: each new TD, INT thrown, takeaway, sack, 2-pt conversion, return TD
   - milestones: crossing a yardage / tackle / completion threshold (once each)
   - big plays: 30+ yard receptions and runs
 
@@ -13,6 +13,7 @@ so the first poll of a week (or of a newly tracked stat) is a silent baseline.
 Stat-key notes: Sleeper's bare 'int' is interceptions THROWN with no player
 context — the QB stat is 'pass_int', defensive takeaways are 'idp_int'.
 'idp_tkl' is solo+assisted combined; tackle milestones use 'idp_tkl_solo'.
+'idp_sack' is fractional (split sacks credit 0.5), so it's diffed separately.
 """
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -56,9 +57,11 @@ MILESTONES = {
 # Raw stats needed to detect 30+ yard plays (see _big_plays)
 _BIG_PLAY_STATS = ("rec_30_39", "rec_40p", "rec_lng", "rush_40p", "rush_lng")
 
+_SACK = "idp_sack"
+
 SNAPSHOT_STATS = tuple(
     dict.fromkeys(
-        list(TRACKED_STATS) + list(_RETURN_YARDS.values())
+        list(TRACKED_STATS) + list(_RETURN_YARDS.values()) + [_SACK]
         + list(MILESTONES) + list(_BIG_PLAY_STATS)
     )
 )
@@ -82,8 +85,8 @@ class StatEvent:
     stat: str
     label: str
     emoji: str
-    delta: int
-    total: int
+    delta: float
+    total: float
     text: str = ""
 
 
@@ -122,6 +125,30 @@ def _count_events(sid, name, now, before, has) -> list[StatEvent]:
     if "st_td" in fired and fired & {"kr_td", "pr_td"}:
         events = [e for e in events if e.stat != "st_td"]
     return events
+
+
+def _fmt_sacks(n: float) -> str:
+    return f"{n:g}"  # 1.0 -> "1", 1.5 -> "1.5"
+
+
+def _sack_events(sid, name, now, before, has) -> list[StatEvent]:
+    """Sacks are fractional, so report the exact amount gained this poll."""
+    if not has(_SACK):
+        return []
+    cur, old = now(_SACK), before(_SACK)
+    if cur <= old:
+        return []
+    delta = cur - old
+    if delta == 1:
+        what = "sack"
+    elif delta < 1:
+        what = f"{_fmt_sacks(delta)} sack (shared)"
+    else:
+        what = f"{_fmt_sacks(delta)} sacks"
+    text = f"🔥 **{name}** {what}!"
+    if cur > delta:
+        text += f" ({_fmt_sacks(cur)} on the day)"
+    return [StatEvent(sid, name, _SACK, "sack", "🔥", delta, cur, text)]
 
 
 def _milestone_events(sid, name, now, before, has) -> list[StatEvent]:
@@ -200,6 +227,7 @@ def detect_events(
             return (_sid, stat) in prev
 
         events += _count_events(sid, name, now, before, has)
+        events += _sack_events(sid, name, now, before, has)
         events += _milestone_events(sid, name, now, before, has)
         events += _big_plays(sid, name, now, before, has)
     return events
