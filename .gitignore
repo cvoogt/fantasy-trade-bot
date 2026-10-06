@@ -7,3 +7,11 @@ __pycache__/
 .venv/
 fantasycalc_cache/
 homarr_status.json
+
+# brag video intermediates
+brag-output/work/frames/
+brag-output/work/final/
+brag-output/work/stills/
+brag-output/work/*.png
+brag-output/work/*.wav
+brag-output/work/*.jpg

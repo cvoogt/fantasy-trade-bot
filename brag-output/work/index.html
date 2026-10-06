@@ -1,0 +1,239 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+:root{--green:#2E8B57;--green2:#3fbf78;--bg:#111214;--panel:#313338;--side:#2b2d31;--embed:#2b2d31;--text:#dbdee1;--muted:#949ba4;--blurple:#5865F2}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);font-family:Inter,"Noto Color Emoji",sans-serif;color:var(--text)}
+#stage{position:absolute;inset:0;overflow:hidden;background:radial-gradient(1200px 800px at 75% 55%,#173a28 0%,#111214 60%)}
+.grid{position:absolute;inset:-200px;background-image:linear-gradient(#ffffff08 2px,transparent 2px),linear-gradient(90deg,#ffffff08 2px,transparent 2px);background-size:120px 120px}
+/* captions */
+.cap{position:absolute;left:110px;top:0;width:640px;height:1080px;display:flex;flex-direction:column;justify-content:center}
+.cap .kick{font-size:26px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--green2);margin-bottom:22px}
+.cap .big{font-size:84px;line-height:1.02;font-weight:800;letter-spacing:-.03em;color:#fff}
+.cap .big em{font-style:normal;color:var(--green2)}
+.cap .sub{margin-top:26px;font-size:30px;line-height:1.35;color:var(--muted);font-weight:500}
+/* discord window */
+#win{position:absolute;left:820px;top:110px;width:1000px;height:860px;background:var(--panel);border-radius:18px;box-shadow:0 40px 120px #000a,0 0 0 1px #ffffff10;overflow:hidden}
+.top{height:64px;border-bottom:1px solid #1f2023;display:flex;align-items:center;padding:0 26px;font-size:24px;font-weight:700;color:#f2f3f5;gap:10px}
+.top .hash{color:var(--muted);font-weight:500;font-size:30px}
+.top .live{margin-left:auto;font-size:16px;font-weight:700;letter-spacing:.1em;color:#fff;background:#da373c;padding:6px 12px;border-radius:6px}
+.body{position:absolute;top:64px;left:0;right:0;bottom:110px;overflow:hidden}
+.feed{position:absolute;left:0;right:0;bottom:12px;padding:0 26px}
+.msg{display:flex;gap:18px;padding:10px 0}
+.av{width:56px;height:56px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:30px;background:var(--green)}
+.av.user{background:#c27c0e;font-size:24px;font-weight:800;color:#fff}
+.hd{display:flex;align-items:center;gap:10px;font-size:21px}
+.hd b{color:#fff;font-weight:600}
+.tag{background:var(--blurple);color:#fff;font-size:13px;font-weight:700;padding:2px 6px;border-radius:4px}
+.hd .ts{color:var(--muted);font-size:15px}
+.ct{font-size:23px;line-height:1.45;margin-top:2px}
+.ct strong{color:#fff}
+.alert{font-size:31px;line-height:1.4;padding:9px 0}
+.embed{margin-top:8px;background:var(--embed);border-left:5px solid var(--green);border-radius:6px;padding:18px 22px;width:760px}
+.embed h4{font-size:22px;color:#fff;margin-bottom:10px}
+.embed .d{font-size:22px;margin-bottom:14px}
+.fields{display:flex;gap:40px}
+.f{font-size:20px;line-height:1.5}
+.f .n{font-weight:700;color:#fff;margin-bottom:2px}
+.mono{font-family:"DejaVu Sans Mono",monospace;font-size:27px;line-height:1.6;white-space:pre}
+.mono .c{background:#1e1f22;border-radius:4px;padding:0 4px}
+.react{display:inline-flex;gap:6px;align-items:center;margin-top:8px;background:#373a54;border:1px solid var(--blurple);border-radius:8px;padding:3px 10px;font-size:18px;color:#dee0fc}
+.input{position:absolute;left:26px;right:26px;bottom:26px;height:62px;background:#383a40;border-radius:10px;display:flex;align-items:center;padding:0 22px;font-size:22px;color:var(--muted)}
+.input .typed{color:#f2f3f5;white-space:pre}
+.input .opt{background:#4e5058;color:#fff;border-radius:4px;padding:1px 6px;margin:0 4px}
+.caret{display:inline-block;width:2px;height:28px;background:#fff;margin-left:2px;vertical-align:middle}
+.layer{position:absolute;inset:0}
+/* slash menu */
+.menu{position:absolute;left:26px;right:26px;bottom:100px;height:600px;background:#2b2d31;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px #0008}
+.menu .mh{padding:16px 22px;font-size:15px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;border-bottom:1px solid #1f2023;background:#2b2d31;position:relative;z-index:2}
+.list{position:absolute;left:0;right:0;top:52px}
+.cmd{height:68px;display:flex;align-items:center;gap:16px;padding:0 22px}
+.cmd .ic{width:38px;height:38px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:20px}
+.cmd .nm{font-size:22px;font-weight:700;color:#fff;width:190px}
+.cmd .ds{font-size:19px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmd.hl{background:#3f4248}
+/* reveal / outro */
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.logo{width:190px;height:190px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:110px;box-shadow:0 0 0 14px #2e8b5733,0 0 120px #2e8b5788}
+.title{margin-top:44px;font-size:118px;font-weight:800;letter-spacing:-.04em;color:#fff}
+.tagline{margin-top:18px;font-size:38px;color:var(--text);font-weight:500}
+.tagline em{font-style:normal;color:var(--green2);font-weight:700}
+.pills{margin-top:44px;display:flex;gap:16px}
+.pill{font-size:26px;font-weight:700;padding:12px 26px;border-radius:999px;background:#ffffff10;border:1px solid #ffffff22;color:#fff}
+.url{margin-top:36px;font-family:"DejaVu Sans Mono",monospace;font-size:30px;color:var(--green2)}
+.stamp{display:inline-block;color:#ff6b6b;font-weight:800}
+</style></head>
+<body>
+<div id="stage">
+  <div class="grid" id="grid"></div>
+
+  <!-- captions -->
+  <div class="cap" id="cap1"><div class="kick">Live on game day</div><div class="big">Every TD.<br>Every sack.<br><em>Pinged live.</em></div></div>
+  <div class="cap" id="cap3"><div class="kick">/trade</div><div class="big">Score any trade.</div><div class="sub">Dynasty value, salary and positional fit. It won't sugarcoat the verdict.</div></div>
+  <div class="cap" id="cap4"><div class="kick">/gametime</div><div class="big">Know when your starters <em>kick off.</em></div></div>
+  <div class="cap" id="cap5"><div class="kick">One bot, whole league</div><div class="big">20 slash commands.<br><em>Zero spreadsheets.</em></div></div>
+
+  <div id="win">
+    <div class="top"><span class="hash">#</span><span id="chan">league-alerts</span><span class="live" id="live">LIVE · SUN 1:07 PM</span></div>
+    <div class="body">
+      <!-- scene 1: alerts -->
+      <div class="layer" id="L1"><div class="feed">
+        <div class="msg"><div class="av">🏈</div><div>
+          <div class="hd"><b>Fantasy Trade Bot</b><span class="tag">APP</span><span class="ts">Today at 1:07 PM</span></div>
+          <div id="alerts">
+            <div class="alert">🏈 <strong>Ja'Marr Chase</strong> receiving TD!</div>
+            <div class="alert">🔥 <strong>Micah Parsons</strong> 1.5 sacks! (2.5 on the day)</div>
+            <div class="alert">🏃 <strong>Bijan Robinson</strong> hit 100 rushing yards! (104 so far)</div>
+            <div class="alert">💥 <strong>Puka Nacua</strong> big play: 47-yard reception!</div>
+            <div class="alert">🛡️ <strong>Fred Warner</strong> interception! Returned 22 yards.</div>
+          </div>
+        </div></div>
+      </div></div>
+
+      <!-- scene 3: trade -->
+      <div class="layer" id="L3"><div class="feed">
+        <div class="msg" id="tradeUser"><div class="av user">C</div><div>
+          <div class="hd"><b>commish</b><span class="ts">Today at 1:12 PM</span></div>
+          <div class="ct" style="color:var(--muted)">used <span style="color:#c9cdfb">/trade</span></div>
+        </div></div>
+        <div class="msg" id="tradeBot"><div class="av">🏈</div><div>
+          <div class="hd"><b>Fantasy Trade Bot</b><span class="tag">APP</span><span class="ts">Today at 1:12 PM</span></div>
+          <div class="ct" id="thinking" style="color:var(--muted)">Fantasy Trade Bot is thinking…</div>
+          <div class="embed" id="tradeEmbed">
+            <h4>Trade Score</h4>
+            <div class="d"><span class="stamp" id="verdict"><strong style="color:#ff6b6b">You're overpaying</strong></span> (FLEECE-OVERPAY, gap 34%)</div>
+            <div class="fields">
+              <div class="f"><div class="n">You give (value 9,850)</div>Bijan Robinson</div>
+              <div class="f"><div class="n">You get (value 6,500)</div>Drake London<br>2026 2nd</div>
+            </div>
+            <div class="f" style="margin-top:12px"><div class="n">Net</div>Value: -3,350<br>Salary: +4</div>
+          </div>
+          <div class="react" id="thumb">👍 1</div>
+        </div></div>
+      </div></div>
+
+      <!-- scene 4: gametime -->
+      <div class="layer" id="L4"><div class="feed">
+        <div class="msg"><div class="av">🏈</div><div>
+          <div class="hd"><b>Fantasy Trade Bot</b><span class="tag">APP</span><span class="ts">Today at 11:00 AM</span></div>
+          <div class="embed">
+            <h4>Game Time — Week 6 · 18 starters</h4>
+            <div class="mono" id="chart"></div>
+            <div class="f" style="margin-top:14px;color:var(--muted);font-size:17px">Starting lineup grouped by NFL game slot · kickoffs in CT</div>
+          </div>
+        </div></div>
+      </div></div>
+    </div>
+
+    <!-- slash menu (scene 5) -->
+    <div class="menu" id="menu"><div class="mh">Fantasy Trade Bot · commands</div><div class="list" id="list"></div></div>
+
+    <div class="input"><span class="typed" id="typed"></span><span class="caret" id="caret"></span><span id="ph">Message #league-alerts</span></div>
+  </div>
+
+  <!-- reveal -->
+  <div class="center" id="reveal">
+    <div class="logo" id="rlogo">🏈</div>
+    <div class="title" id="rtitle">Fantasy Trade Bot</div>
+    <div class="tagline" id="rtag">Your right-hand man for <em>MFL salary-cap dynasty</em> leagues.</div>
+  </div>
+
+  <!-- outro -->
+  <div class="center" id="outro">
+    <div class="logo" id="ologo">🏈</div>
+    <div class="title" id="otitle">Fantasy Trade Bot</div>
+    <div class="tagline" id="otag">Stop guessing. <em>Start fleecing.</em></div>
+    <div class="pills" id="opills"><span class="pill">Discord</span><span class="pill">MyFantasyLeague</span><span class="pill">Sleeper</span></div>
+    <div class="url" id="ourl">github.com/cvoogt/fantasy-trade-bot</div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const lin=(t,a,b)=>clamp((t-a)/(b-a));
+const eo=x=>1-Math.pow(1-x,3);
+const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const back=x=>{const c=1.70158,c3=c+1;return 1+c3*Math.pow(x-1,3)+c*Math.pow(x-1,2)};
+function set(el,o,tx=0,ty=0,s=1){el.style.opacity=o;el.style.transform=`translate(${tx}px,${ty}px) scale(${s})`;el.style.visibility=o<=0.001?'hidden':'visible'}
+
+// commands list (real names + descriptions from bot.py)
+const CMDS=[["trade","Score a trade — names, MFL ids, or picks ('2026 1st')"],["waivers","Top waiver gems + suggested drops"],["lineup","Optimal starting lineup from weekly projections"],["gametime","When your starters play — game-slot chart"],["tradefinder","Find trades — league-wide, or packages for a target"],["nflstarters","Free agents who start for their NFL team"],["injury","Injury status for every player on your roster"],["matchup","My head-to-head matchup: opponent, score, players left"],["salary","Salary-cap analysis (defaults to my team)"],["cuts","Recommended cuts: cap relief for low-value contracts"],["draft","Best available in the rookie draft + my remaining picks"],["projections","Top projected players under league scoring"],["freeagent","Top free agents: projected points + salary"],["player","Look up a player's dynasty value, salary, VPD, VOR"],["roster","My roster health vs league median"],["trades","League trades from the last X days, with verdicts"],["scan","Scan league for new trades and score them"],["schedule","Auto-post a command in this channel every week"],["schedules","List scheduled auto-posts, or remove one by id"],["update","Pull the latest bot code and restart"]];
+$('list').innerHTML=CMDS.map(([n,d])=>`<div class="cmd"><div class="ic">🏈</div><div class="nm">/${n}</div><div class="ds">${d}</div></div>`).join('');
+const cmdEls=[...document.querySelectorAll('.cmd')];
+
+const ROWS=[["Thu Night",2],["Sun Early",9],["Sun Late",4],["Sun Night",2],["Mon Night",1]];
+const MAXN=9,W=14;
+const alerts=[...document.querySelectorAll('#alerts .alert')];
+const TYPE='/trade give: Bijan Robinson  get: Drake London, 2026 2nd';
+
+window.render=function(t){
+  // background drift
+  $('grid').style.transform=`translate(${-t*6}px,${-t*3}px)`;
+
+  // ---------- window visibility ----------
+  // in 0.0-0.35, out to reveal 2.95-3.3, back in 5.75-6.15, out for outro 16.75-17.1
+  let wo,ws,wy;
+  if(t<3.3){const a=eo(lin(t,0,.35)),b=eio(lin(t,2.95,3.3));wo=a*(1-b);ws=.94+.06*a-.06*b;wy=40*(1-a)}
+  else if(t<16.75){const a=eo(lin(t,5.75,6.15));wo=a;ws=.94+.06*a;wy=40*(1-a)}
+  else{const b=eio(lin(t,16.75,17.1));wo=1-b;ws=1-.06*b;wy=0}
+  set($('win'),wo,0,wy,ws);
+
+  // channel header
+  $("chan").textContent=(t>=5.75&&t<10.75)?"trade-desk":"league-alerts";
+  $('live').style.visibility=t<3.3?'visible':'hidden';
+
+  // ---------- scene 1: alerts ----------
+  const L1=1-eio(lin(t,2.95,3.3));
+  set($('L1'),t<3.3?L1:0);
+  alerts.forEach((el,i)=>{const s=.25+i*.5;const a=eo(lin(t,s,s+.28));el.style.opacity=a;el.style.transform=`translateX(${(1-a)*60}px)`;el.style.display=t>=s?'block':'none';el.style.background=t>=s&&t<s+.5?`rgba(46,139,87,${.18*(1-lin(t,s,s+.5))})`:'transparent'});
+  {const a=eo(lin(t,.1,.5)),b=eio(lin(t,2.95,3.25));set($('cap1'),a*(1-b),0,30*(1-a)-30*b)}
+
+  // ---------- scene 2: reveal ----------
+  {const a1=back(lin(t,3.3,3.75)),a2=eo(lin(t,3.5,3.9)),a3=eo(lin(t,3.75,4.15)),b=eio(lin(t,5.5,5.85));
+   const on=t>3.2&&t<6;
+   set($('reveal'),on?1-b:0,0,0,1);
+   set($('rlogo'),clamp(a1),0,0,.4+.6*a1);
+   set($('rtitle'),a2,0,30*(1-a2));
+   set($('rtag'),a3,0,24*(1-a3));}
+
+  // ---------- scene 3: trade ----------
+  const tin=t>=5.75&&t<10.75;
+  set($('L3'),tin?1-eio(lin(t,10.4,10.7)):0);
+  const tS=6.25,tE=7.75; // typing
+  const n=Math.floor(TYPE.length*lin(t,tS,tE));
+  let typed='';
+  if(t>=tS&&t<7.95) typed=TYPE.slice(0,n);
+  $('typed').innerHTML=typed.replace(/(give:|get:)/g,'<span class="opt">$1</span>');
+  const typing=t>=6.1&&t<7.95;
+  $('caret').style.display=typing&&(Math.floor(t*3)%2===0||t<tE)?'inline-block':'none';
+  $('ph').style.display=typed?'none':'inline';
+  $('ph').textContent='Message #'+$('chan').textContent;
+  {const a=eo(lin(t,7.95,8.2));set($('tradeUser'),t>=7.95?a:0,0,20*(1-a));set($('tradeBot'),t>=7.95?a:0,0,20*(1-a));
+   $('thinking').style.display=t>=7.95&&t<8.45?'block':'none';
+   const e=eo(lin(t,8.45,8.75));$('tradeEmbed').style.display=t>=8.45?'block':'none';set($('tradeEmbed'),e,0,16*(1-e));
+   const v=back(lin(t,8.75,9.05));$('verdict').style.transform=`scale(${t<8.75?1:1+.25*(1-v)+0*v})`;$('verdict').style.opacity=t<8.75?0:clamp(v*1.5);
+   const r=back(lin(t,9.45,9.7));$('thumb').style.display=t>=9.45?'inline-flex':'none';$('thumb').style.transform=`scale(${r})`;}
+  {const a=eo(lin(t,6.2,6.6)),b=eio(lin(t,10.4,10.7));set($('cap3'),t<10.75?a*(1-b):0,0,30*(1-a)-30*b)}
+
+  // ---------- scene 4: gametime ----------
+  const g4=t>=10.7&&t<14.65;
+  {const a=eo(lin(t,10.75,11.05)),b=eio(lin(t,14.3,14.6));set($('L4'),g4?a*(1-b):0,0,20*(1-a))}
+  {let lines=[];ROWS.forEach(([lbl,c],i)=>{const full=Math.max(1,Math.round(W*c/MAXN));const p=eo(lin(t,11.15+i*.28,11.15+i*.28+.45));const f=Math.round(full*p);const shown=Math.round(c*p);lines.push(`<span class="c">${lbl.padEnd(9)}</span> <span style="color:#3fbf78">${'█'.repeat(f)}</span><span style="color:#4e5058">${'░'.repeat(W-f)}</span> <span class="c">${String(shown).padStart(2)}</span>`)});$('chart').innerHTML=lines.join('\n')}
+  {const a=eo(lin(t,10.85,11.25)),b=eio(lin(t,14.3,14.6));set($('cap4'),t>10.7&&t<14.65?a*(1-b):0,0,30*(1-a)-30*b)}
+
+  // ---------- scene 5: slash menu ----------
+  const m5=t>=14.55&&t<17.1;
+  {const a=eo(lin(t,14.6,14.9));set($('menu'),m5?a:0,0,30*(1-a));
+   if(m5){$('typed').textContent='/';$('ph').style.display='none';$('caret').style.display='inline-block'}
+   const sc=eio(lin(t,14.95,16.6));const maxScroll=CMDS.length*68-548;$('list').style.transform=`translateY(${-sc*maxScroll}px)`;
+   const hi=Math.min(CMDS.length-1,Math.floor(lin(t,14.9,16.75)*CMDS.length));cmdEls.forEach((el,i)=>el.classList.toggle('hl',i===hi));}
+  {const a=eo(lin(t,14.7,15.1)),b=eio(lin(t,16.75,17.05));set($('cap5'),t>14.6&&t<17.1?a*(1-b):0,0,30*(1-a)-30*b)}
+
+  // ---------- scene 6: outro ----------
+  {const on=t>=17.05;const a1=back(lin(t,17.15,17.6)),a2=eo(lin(t,17.3,17.7)),a3=eo(lin(t,17.5,17.9)),a4=eo(lin(t,17.7,18.1)),a5=eo(lin(t,17.9,18.3));
+   set($('outro'),on?1:0);set($('ologo'),clamp(a1),0,0,.4+.6*a1);set($('otitle'),a2,0,30*(1-a2));set($('otag'),a3,0,24*(1-a3));set($('opills'),a4,0,20*(1-a4));set($('ourl'),a5,0,16*(1-a5));}
+};
+window.render(0);
+</script>
+</body></html>

@@ -1,0 +1,1 @@
+Built a Discord bot for my MFL salary-cap dynasty league. It pings the channel on every TD, sack (half sacks included) and 100-yard game from my starters, and when I try to make a bad trade it just says "You're overpaying." 20 slash commands, zero spreadsheets: github.com/cvoogt/fantasy-trade-bot
